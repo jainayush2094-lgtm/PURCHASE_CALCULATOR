@@ -279,6 +279,7 @@ function App(){
     const avg=stats[p.id]?stats[p.id].avg:0;
     saveSales([...salesRows,{code:p.id,name:p.name,cat:catOf[p.id]||p._cat||"Other",rack:p.rack||"",cost:avg>0?numStr(avg):"",extra:"",pct:"",sell:""}]);
   };
+  const addSalesAll=()=>{const have=new Set(salesRows.map(r=>r.code));const add=salesPickRows.filter(p=>!have.has(p.id)).map(p=>{const avg=stats[p.id]?stats[p.id].avg:0;return{code:p.id,name:p.name,cat:catOf[p.id]||p._cat||"Other",rack:p.rack||"",cost:avg>0?numStr(avg):"",extra:"",pct:"",sell:""};});if(add.length===0){flash(sGlobal.trim()?"All matching items already added":"All items in this category already added");return;}saveSales([...salesRows,...add]);flash("Added "+add.length+" item"+(add.length>1?"s":""));};
   const addSalesCustom=()=>{if(!scName)return;saveSales([...salesRows,{code:"SX-"+uid(),name:scName,cat:"Custom",rack:"",cost:scCost?numStr(num(scCost)):"",extra:"",pct:"",sell:""}]);setScName("");setScCost("");};
   const removeSalesRow=i=>saveSales(salesRows.filter((_,x)=>x!==i));
   const clearSales=()=>{if(salesRows.length===0)return;setConfirm({msg:"Clear all "+salesRows.length+" item(s) from the sell rate calculator? (Your catalogue and purchases are kept.)",action:()=>{saveSales([]);setConfirm(null);}});};
@@ -537,6 +538,11 @@ function App(){
             {Object.keys(catalog).map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
           <input value={sFilter} onChange={e=>setSFilter(e.target.value)} placeholder="filter..." style={{width:120,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}/>
         </div>)}
+        {salesPickRows.length>0&&(()=>{const newCount=salesPickRows.filter(p=>!inSales[p.id]).length;return(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:K.ag,border:"1px solid "+K.ac+"55",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
+            <span style={{fontSize:12,color:K.tm}}>{sGlobal.trim()?salesPickRows.length+" match"+(salesPickRows.length>1?"es":""):salesPickRows.length+" in "+sCat}{newCount<salesPickRows.length?" · "+newCount+" not yet added":""}</span>
+            <Btn K={K} onClick={addSalesAll} style={{padding:"7px 14px",fontSize:12.5,whiteSpace:"nowrap",opacity:newCount>0?1:0.5}}>{"\u002B"} Add {sGlobal.trim()?"all matching":"whole category"}{newCount>0?" ("+newCount+")":""}</Btn>
+          </div>);})()}
         <div className="prod-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,maxHeight:"40vh",overflowY:"auto",paddingRight:2}}>
           {salesPickRows.map(p=>{const added=inSales[p.id];const avg=stats[p.id]?stats[p.id].avg:0;return(
             <button key={p.id} onClick={()=>addSalesItem(p)} style={{textAlign:"left",background:added?K.ag:K.bg,border:"1px solid "+(added?K.ac:K.bd),borderRadius:10,padding:"9px 10px",cursor:"pointer",position:"relative",fontFamily:"inherit",color:K.tx}}>
