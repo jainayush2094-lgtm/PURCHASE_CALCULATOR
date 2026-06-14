@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AMAZZA — Purchase Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🚰</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{font-family:'Montserrat',sans-serif;overflow-x:hidden;transition:background .3s}
+    input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+    input[type=number]{-moz-appearance:textfield}
+    ::-webkit-scrollbar{width:7px;height:7px}
+    ::-webkit-scrollbar-thumb{background:#9994;border-radius:4px}
+    .serif{font-family:'Cormorant Garamond',serif}
+    @keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+    @media(max-width:820px){.main-grid{grid-template-columns:1fr!important}.prod-grid{grid-template-columns:1fr 1fr!important}.row-fields{grid-template-columns:1fr!important}}
+    @media(max-width:520px){.prod-grid{grid-template-columns:1fr!important}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useMemo}=React;
+const BRAND={name:"AMAZZA",company:"Sky Impex"};
+
+/* ===== FULL CATALOGUE (carried over from the quotation generator) ===== */
+const DEFAULT_CATALOG={"NOVA SERIES":[{id:"NV-001",name:"NOVA LONG BODY",price:355,rack:""},{id:"NV-002",name:"NOVA ANGLE COCK",price:260,rack:""},{id:"NV-003",name:"NOVA BIB COCK",price:340,rack:""},{id:"NV-004",name:"NOVA PILLAR COCK",price:355,rack:""},{id:"NV-005",name:"NOVA SWAN NECK",price:520,rack:""},{id:"NV-006",name:"NOVA SINK COCK",price:520,rack:""},{id:"NV-007",name:"NOVA CONCEALED 15MM",price:370,rack:""},{id:"NV-008",name:"NOVA NOZZLE BIB COCK",price:285,rack:""},{id:"NV-009",name:"NOVA SINK MIXER",price:980,rack:""},{id:"NV-010",name:"NOVA L BEND MIXER",price:1520,rack:""},{id:"NV-011",name:"NOVA 6'' PILLAR COCK",price:430,rack:""},{id:"NV-012",name:"NOVA 2 IN 1 ANGLE COCK",price:430,rack:""},{id:"NV-013",name:"SUPERNOVA LONG BODY",price:440,rack:""},{id:"NV-014",name:"NOVA CENTRE HOLE",price:980,rack:""},{id:"NV-015",name:"NOVA 3 IN 1 WALL MIXER",price:1850,rack:""},{id:"NV-016",name:"NOVA WASHING BIB COCK",price:310,rack:""},{id:"NV-017",name:"SUPERNOVA WALL MIXER",price:1850,rack:""},{id:"NV-018",name:"NOVA 2 WAY BIB COCK",price:560,rack:""}],"FUSION SERIES":[{id:"FS-001",name:"FUSION LONG BODY",price:335,rack:""},{id:"FS-002",name:"FUSION BIB COCK",price:320,rack:""},{id:"FS-003",name:"FUSION ANGLE COCK",price:210,rack:""},{id:"FS-004",name:"FUSION PILLAR COCK",price:335,rack:""},{id:"FS-005",name:"FUSION SWAN NECK",price:490,rack:""},{id:"FS-006",name:"FUSION SINK COCK",price:490,rack:""},{id:"FS-007",name:"FUSION NOZZLE BIB COCK",price:230,rack:""},{id:"FS-008",name:"FUSION CENTRE HOLE MIXER",price:950,rack:""},{id:"FS-009",name:"FUSION SINK MIXER",price:950,rack:""},{id:"FS-010",name:"FUSION L BEND MIXER",price:1520,rack:""},{id:"FS-011",name:"FUSION (M) BIB COCK",price:270,rack:""},{id:"FS-012",name:"FUSION M LONG BODY",price:280,rack:""},{id:"FS-013",name:"FUSION 2 IN 1 ANGLE COCK",price:430,rack:""},{id:"FS-014",name:"FUSION 2 IN 1 BIB COCK",price:540,rack:""},{id:"FS-015",name:"FUSION CONCEALED",price:360,rack:""},{id:"FS-016",name:"FUSION WASHING BIB",price:225,rack:""},{id:"FS-017",name:"6'' PILLAR COCK FUSION",price:450,rack:""}],"AQUA SERIES":[{id:"AQ-001",name:"AQUA LONG BODY",price:270,rack:""},{id:"AQ-002",name:"AQUA ANGLE COCK",price:210,rack:""},{id:"AQ-003",name:"AQUA BIB COCK",price:245,rack:""},{id:"AQ-004",name:"AQUA PILLAR COCK",price:320,rack:""},{id:"AQ-005",name:"AQUA SWAN NECK",price:390,rack:""},{id:"AQ-006",name:"AQUA SINK COCK",price:390,rack:""},{id:"AQ-007",name:"AQUA CONCEALED",price:360,rack:""},{id:"AQ-008",name:"AQUA NOZZLE BIB COCK",price:230,rack:""},{id:"AQ-009",name:"AQUA CENTRE HOLE MIXER",price:950,rack:""},{id:"AQ-010",name:"AQUA SINK MIXER",price:980,rack:""},{id:"AQ-011",name:"AQUA L BEND MIXER",price:1250,rack:""},{id:"AQ-012",name:"AQUA 2 IN 1 ANGLE COCK",price:430,rack:""},{id:"AQ-013",name:"AQUA WASHING BIB",price:225,rack:""},{id:"AQ-014",name:"AQUA 2 IN 1 BIB COCK",price:540,rack:""}],"CURVE SERIES":[{id:"CR-001",name:"CURVE LONG BODY",price:335,rack:""},{id:"CR-002",name:"CURVE ANGLE COCK",price:210,rack:""},{id:"CR-003",name:"CURVE BIB COCK",price:320,rack:""},{id:"CR-004",name:"CURVE PILLAR COCK",price:335,rack:""},{id:"CR-005",name:"CURVE SWAN NECK",price:510,rack:""},{id:"CR-006",name:"CURVE SINK COCK",price:510,rack:""},{id:"CR-007",name:"CURVE NOZZLE BIB COCK",price:220,rack:""},{id:"CR-008",name:"CURVE CENTRE HOLE MIXER",price:950,rack:""},{id:"CR-009",name:"CURVE SINK MIXER",price:980,rack:""},{id:"CR-010",name:"CURVE L BEND MIXER",price:1470,rack:""},{id:"CR-011",name:"CURVE CONCEALED",price:360,rack:""},{id:"CR-012",name:"CURVE 2 IN 1 BIB COCK",price:540,rack:""},{id:"CR-013",name:"CURVE 2 IN 1 ANGLE",price:440,rack:""},{id:"CR-014",name:"CURVE WASHING BIB COCK",price:245,rack:""}],"ACE SERIES":[{id:"AC-001",name:"ACE SWAN NECK",price:390,rack:""},{id:"AC-002",name:"ACE SINK COCK",price:390,rack:""},{id:"AC-003",name:"LONG BODY ACE",price:230,rack:""},{id:"AC-004",name:"ACE ANGLE COCK",price:200,rack:""},{id:"AC-005",name:"ACE BIB COCK",price:200,rack:""}],"CORNER & SHELF":[{id:"CS-001",name:"SS SHELF 12''",price:210,rack:"A67"},{id:"CS-002",name:"SS CORNER 12''",price:225,rack:"A71"},{id:"CS-003",name:"CORNER SET 700G",price:290,rack:"A33"},{id:"CS-004",name:"CORNER SET 1000G",price:370,rack:"A70"},{id:"CS-005",name:"UNBREAKABLE CORNER",price:280,rack:"A66"},{id:"CS-006",name:"DOUBLE FOLDING RACK",price:820,rack:"UPPERA21A25"},{id:"CS-007",name:"SINGLE FOLDING RACK",price:350,rack:"UPPERA29"},{id:"CS-008",name:"18'' SHELF",price:350,rack:"A30"},{id:"CS-009",name:"15'' SHELF",price:290,rack:"A30(1)"},{id:"CS-010",name:"3 IN 1 SHELF",price:360,rack:"A85"},{id:"CS-011",name:"2 LAYER SHELF",price:480,rack:"UPPERA73"},{id:"CS-012",name:"3 LAYER SHELF WITH GLASS",price:850,rack:""},{id:"CS-013",name:"3 LAYER SHELF",price:790,rack:"UPPERA37"},{id:"CS-014",name:"CERAMIC CORNER",price:350,rack:""},{id:"CS-015",name:"COLOUR CORNER",price:120,rack:""},{id:"CS-016",name:"CERAMIC CORNER PRIMS",price:520,rack:""},{id:"CS-017",name:"PVC CORNER BLUE",price:120,rack:"A73"},{id:"CS-018",name:"PVC CORNER PINK",price:120,rack:"A73A69"},{id:"CS-019",name:"PVC CORNER WHITE",price:120,rack:"A69"}],"SHOWERS":[{id:"SH-001",name:"SANDWICH 4X4",price:135,rack:"A37"},{id:"SH-002",name:"SANDWICH 6X6",price:290,rack:"A37(1)"},{id:"SH-003",name:"ULTRA SLIM 4X4",price:105,rack:"A42"},{id:"SH-004",name:"CURVE 4X4",price:205,rack:"A41"},{id:"SH-005",name:"CURVE 6X6",price:250,rack:"A41(1)"},{id:"SH-006",name:"ELEGANT 6X6",price:306,rack:"A50"},{id:"SH-007",name:"ELEGANT 4X4",price:210,rack:"A50(1)"},{id:"SH-008",name:"ULTRA SLIM ROUND 6X6",price:195,rack:"A45"},{id:"SH-009",name:"ULTRA SLIM ROUND 4X4",price:125,rack:"A45(1)"},{id:"SH-010",name:"ULTRA SLIM 6X6",price:170,rack:"A46"},{id:"SH-011",name:"ULTRA SLIM 8X8",price:260,rack:"A42(1)"},{id:"SH-012",name:"MAZE 8X8",price:380,rack:"A38"},{id:"SH-013",name:"MAZE 6X6",price:250,rack:"A38(1)"},{id:"SH-014",name:"MAZE 4X4",price:140,rack:"A38(2)"},{id:"SH-015",name:"ELEGANT 8X8",price:430,rack:"A46(1)"},{id:"SH-016",name:"CURVE 8X8",price:410,rack:"A41(2)"},{id:"SH-017",name:"SANDWICH 8X8",price:440,rack:"A37(2)"},{id:"SH-018",name:"HAND SHOWER BIG BLUE",price:225,rack:"UPPERA13"},{id:"SH-019",name:"ABS SHOWER NEW MAX",price:200,rack:"UPPERA01"},{id:"SH-020",name:"ABS SHOWER ROUND PRINCE",price:175,rack:"UPPERA01A05"},{id:"SH-021",name:"ABS SHOWER SQUARE PRINCE",price:175,rack:"UPPERA09"},{id:"SH-022",name:"ABS SHOWER JAQUARE SQR",price:200,rack:"UPPERA09(1)"},{id:"SH-023",name:"ABS SHOWER GALAXY",price:200,rack:"UPPER09"},{id:"SH-024",name:"ABS SHOWER TORCH",price:200,rack:"UPPERA09(2)"},{id:"SH-025",name:"ABS SHOWER JAQUARE ROUND",price:200,rack:"UPPER05"},{id:"SH-026",name:"HAND SHOWER SMALL BLUE",price:225,rack:"UPPERA13(1)"},{id:"SH-027",name:"SHOWER PANEL",price:9500,rack:""}],"SOAP DISH":[{id:"SD-001",name:"MULTI SOAP DISH",price:80,rack:"c10"},{id:"SD-002",name:"SOAP DISH FROSTED",price:220,rack:"A29"},{id:"SD-003",name:"SINGLE SOAP DISH SS",price:42,rack:"C2"},{id:"SD-004",name:"2 IN 1 SOAP DISH SS",price:80,rack:"C2(1)"},{id:"SD-005",name:"3 IN 1 SOAP DISH",price:110,rack:"C10"},{id:"SD-006",name:"DOUBLE SOAP DISH",price:76,rack:"C6"},{id:"SD-007",name:"2 IN 1 SOAP DISH WITH CLIP",price:80,rack:"C6(1)"},{id:"SD-008",name:"SOAP DISH FANCY SINGLE PC",price:100,rack:"C10(1)"}],"SOAP DISPENSER":[{id:"SP-001",name:"SOAP DISPENSER CAPSULE BLACK",price:130,rack:"A47A43"},{id:"SP-002",name:"SOAP DISPENSER CHROME",price:185,rack:"A44"},{id:"SP-003",name:"SOAP DISPENSER CAPSULE WHITE",price:130,rack:"A51A47"},{id:"SP-004",name:"SOAP DISPENSER CAPSULE ROSE GOLD",price:198,rack:"A39"},{id:"SP-005",name:"SOAP DISPENSER CAPSULE GOLD",price:198,rack:"A48A52"},{id:"SP-006",name:"SOAP DISPENSER DOLPHIN BLACK",price:120,rack:"A44A48"},{id:"SP-007",name:"SOAP DISPENSER DOLPHIN WHITE",price:120,rack:"A39A43"},{id:"SP-008",name:"SOAP DISPENSER LONG WHITE",price:175,rack:"A40"},{id:"SP-009",name:"SOAP DISPENSER LONG BLACK",price:175,rack:"A40(1)"},{id:"SP-010",name:"SOAP DISPENSER FROSTED",price:320,rack:"A51"}],"HEALTH FAUCET":[{id:"HF-001",name:"HF SET CONTI ABS",price:330,rack:""},{id:"HF-002",name:"HF SET MAHINDRA BRASS",price:440,rack:""},{id:"HF-003",name:"BLISTER HEALTH FAUCET SET",price:130,rack:"A60A56"},{id:"HF-004",name:"JAQUAR HF GUN LIGHT",price:40,rack:"UPPERA57"},{id:"HF-005",name:"POLO HEALTH FAUCET SET",price:80,rack:""},{id:"HF-006",name:"HF GUN BRASS",price:270,rack:""},{id:"HF-007",name:"HEALTH FAUCET SET ABS",price:175,rack:""},{id:"HF-008",name:"HEALTH FAUCET GUN",price:60,rack:""},{id:"HF-009",name:"PTMT HF SET",price:160,rack:"A49"},{id:"HF-010",name:"HEALTH FAUCET",price:150,rack:""},{id:"HF-011",name:"H/F HOOK (SS)",price:24,rack:"C6(2)"},{id:"HF-012",name:"H/F HOOK (ABS)",price:12,rack:""},{id:"HF-013",name:"MILANO HEALTH FAUCET SET",price:330,rack:"A58"},{id:"HF-014",name:"MARINO SQUARE HF SET",price:330,rack:"A57"},{id:"HF-015",name:"SELF CLEANING HF SET",price:440,rack:"A57(1)"},{id:"HF-016",name:"MARINO JAQUAR HF SET",price:329,rack:"A53"},{id:"HF-017",name:"MAGICFLOW JAQUAR HF SET",price:327,rack:"A54"},{id:"HF-018",name:"PENCIL CP BRASS HF SET",price:469,rack:"A55"},{id:"HF-019",name:"COLLAR BRASS HF SET",price:479,rack:"A55(1)"},{id:"HF-020",name:"CAMEL BRASS HF SET",price:479,rack:"A55(2)"},{id:"HF-021",name:"CARGO BRASS HF SET",price:479,rack:"A55(3)"},{id:"HF-022",name:"PENCIL BLACK HF SET",price:449,rack:"A61"},{id:"HF-023",name:"BULLET BRASS HF SET",price:449,rack:"A61(1)"},{id:"HF-024",name:"NOZZLE BRASS HF SET",price:449,rack:"A62"},{id:"HF-025",name:"JAQUAR BRASS HF SET",price:469,rack:"A63"},{id:"HF-026",name:"MAHINDRA BRASS HF SET",price:449,rack:"A63(1)"},{id:"HF-027",name:"JACKO HF GUN LIGHT",price:60,rack:"UPPERA57(1)"},{id:"HF-028",name:"SQUARE HF GUN (LIGHT)",price:60,rack:"UPPERA57(2)"},{id:"HF-029",name:"H/F HOOK (BRASS)",price:70,rack:"C06"}],"SHOWER ARMS":[{id:"SA-001",name:"9'' ARM (H)",price:105,rack:"A10"},{id:"SA-002",name:"12'' ARM (H)",price:135,rack:"A10(1)"},{id:"SA-003",name:"15'' ARM (H)",price:170,rack:"A06"},{id:"SA-004",name:"ROUND ARM",price:250,rack:""},{id:"SA-005",name:"18'' ARM (H)",price:210,rack:"A06(1)"},{id:"SA-006",name:"9'' ARM (BRASS NUT)",price:140,rack:"A02"},{id:"SA-007",name:"12'' ARM (BRASS NUT)",price:170,rack:"A02(1)"},{id:"SA-008",name:"15'' ARM (BRASS NUT)",price:210,rack:"A02(2)"},{id:"SA-009",name:"18'' ARM (BRASS NUT)",price:180,rack:"A03"}],"DRAIN JALI":[{id:"DJ-001",name:"POP UP JALI 4''",price:130,rack:"A09"},{id:"DJ-002",name:"POP UP JALI 6''",price:195,rack:"A09(1)"},{id:"DJ-003",name:"POP UP JALI 8''",price:210,rack:"A12"},{id:"DJ-004",name:"12'' DRAIN JALI",price:850,rack:""},{id:"DJ-005",name:"COCKROACH JALI SQUARE PLAIN",price:110,rack:"A34"},{id:"DJ-006",name:"COCKROACH JALI SQ CUT",price:90,rack:"A35"},{id:"DJ-007",name:"COCKROACH JALI ROUND PL",price:110,rack:"A32"},{id:"DJ-008",name:"COCKROACH JALI ROUND CUT",price:110,rack:"A28"},{id:"DJ-009",name:"5'' PLAIN JALI",price:19.5,rack:"A74"},{id:"DJ-010",name:"5'' CUT JALI",price:19.5,rack:"A74(1)"},{id:"DJ-011",name:"4'' PLAIN JALI",price:17.5,rack:"A79"},{id:"DJ-012",name:"4'' CUT JALI",price:17.5,rack:"A75"},{id:"DJ-013",name:"3'' PLAIN JALI",price:14,rack:"A78"},{id:"DJ-014",name:"3'' CUT JALI",price:14,rack:"A78(1)"},{id:"DJ-015",name:"LOCKING JALI SS",price:30,rack:""},{id:"DJ-016",name:"2.5'' CUT JALI",price:12.5,rack:""},{id:"DJ-017",name:"2.5'' PLAIN JALI",price:12.5,rack:""},{id:"DJ-018",name:"DRAIN JALI",price:790,rack:""},{id:"DJ-019",name:"3'' LINING JALI SQUARE",price:22.5,rack:"A82"},{id:"DJ-020",name:"4'' LINING JALI SQUARE",price:29,rack:"A82(1)"},{id:"DJ-021",name:"5'' LINING JALI SQUARE",price:36,rack:"A82(2)"},{id:"DJ-022",name:"6'' LINING JALI SQUARE",price:45,rack:"A77"},{id:"DJ-023",name:"5'' LINING JALI ROUND",price:45,rack:"A82(3)"},{id:"DJ-024",name:"4'' LINING JALI ROUND",price:35,rack:"A82(4)"}],"TOWEL ACCESSORIES":[{id:"TA-001",name:"TOWEL RING OVAL (M)",price:85,rack:"A31"},{id:"TA-002",name:"TOWEL RING TRIANGLE (M)",price:85,rack:"A31(1)"},{id:"TA-003",name:"TOWEL RING SQUARE (M)",price:85,rack:"A27"},{id:"TA-004",name:"TOWEL RING ROUND (M)",price:75,rack:"A27(1)"},{id:"TA-005",name:"TOWEL RING HALF RING (M)",price:85,rack:"A27(2)"},{id:"TA-006",name:"TOWEL ROD BIG HOOK",price:95,rack:""},{id:"TA-007",name:"TOWEL ROD MEDIUM HOOK",price:95,rack:""},{id:"TA-008",name:"TOWEL ROD SMALL HOOK",price:95,rack:""},{id:"TA-009",name:"TOWEL ROD CONCEALED",price:150,rack:""},{id:"TA-010",name:"TOWEL ROD WIRE",price:160,rack:""},{id:"TA-011",name:"TOWEL ROD DOUBLE HOOK 18''",price:150,rack:""},{id:"TA-012",name:"TOWEL ROD DOUBLE HOOK 24''",price:160,rack:""},{id:"TA-013",name:"TOWEL RING SQUARE HEAVY",price:100,rack:"A26"},{id:"TA-014",name:"TOWEL RING TRIANGLE HEAVY",price:100,rack:"A26(1)"},{id:"TA-015",name:"TOWEL RING ROUND HEAVY",price:100,rack:"A26(2)"},{id:"TA-016",name:"TOWEL RING OVAL HEAVY",price:100,rack:"A26(3)"},{id:"TA-017",name:"TOWEL RING HALF RING HEAVY",price:100,rack:"A27(3)"}],"PAPER HOLDER & HOOKS":[{id:"PH-001",name:"PAPER HOLDER",price:130,rack:"A25"},{id:"PH-002",name:"PAPER HOLDER HEAVY",price:270,rack:"A25(1)"},{id:"PH-003",name:"TURKEY",price:28,rack:"A16"},{id:"PH-004",name:"TURKEY BLUE",price:21,rack:"A12(1)"},{id:"PH-005",name:"HOOK",price:25,rack:""},{id:"PH-006",name:"MOVING HOOK HEART",price:38,rack:"A22"},{id:"PH-007",name:"MOVING HOOK SQUARE",price:38,rack:"A22(1)"},{id:"PH-008",name:"MOVING HOOK BUTTERFLY",price:38,rack:"A22(2)"}],"AMAZZA PRODUCTS":[{id:"AM-001",name:"ANGLE COCK AMAZZA",price:120,rack:"C14"},{id:"AM-002",name:"AMAZZA ONE PC LUNAR",price:6000,rack:""},{id:"AM-003",name:"AMAZZA ONE PC JAVA",price:6000,rack:""},{id:"AM-004",name:"AMAZZA ONE PC CABIO",price:6000,rack:""},{id:"AM-005",name:"AMAZZA ONE PC MARCO",price:6000,rack:""},{id:"AM-006",name:"AMAZZA ONE PC MARCO 2.0",price:6000,rack:""},{id:"AM-007",name:"AMAZZA ON PC DIAMOND",price:6000,rack:""},{id:"AM-008",name:"AMAZZA ON PC VOLVO",price:6000,rack:""},{id:"AM-009",name:"AMAZZA ON PC BLACK GOLD",price:8500,rack:""},{id:"AM-010",name:"AMAZZA ON PC BLACK GREY",price:8500,rack:""},{id:"AM-011",name:"AMAZZA ON PC GREY",price:8500,rack:""},{id:"AM-012",name:"AMAZZA ONE PC PINK",price:8500,rack:""},{id:"AM-013",name:"AMAZZA MINI FUSION SET",price:1450,rack:""},{id:"AM-014",name:"AMAZZA PRIMS CORNER",price:700,rack:""},{id:"AM-015",name:"AMAZZA GEM BASIN",price:750,rack:""},{id:"AM-016",name:"AMAZZA EWC SQUARE",price:1150,rack:""},{id:"AM-017",name:"AMAZZA WALL HUNG LOFT",price:2600,rack:""},{id:"AM-018",name:"AMAZZA WALL HUNG ROUND",price:2600,rack:""},{id:"AM-019",name:"AMAZZA HALF PADESTIAL",price:1900,rack:""},{id:"AM-020",name:"AMAZZA RECTA BASIN SET",price:1250,rack:""},{id:"AM-021",name:"AMAZZA COLOUR TABLE TOP",price:3200,rack:""},{id:"AM-022",name:"AMAZZA TABLE TOP ALMORA",price:2750,rack:""},{id:"AM-023",name:"AMAZZA TABLE TOP WENA",price:2750,rack:""},{id:"AM-024",name:"AMAZZA TABLE TOP PYORAL",price:2750,rack:""},{id:"AM-025",name:"AMAZZA TABLE TOP STAR",price:2750,rack:""},{id:"AM-026",name:"AMAZZA TABLE TOP BERLIN",price:2750,rack:""},{id:"AM-027",name:"AMAZZA TABLE TOP DEMIS",price:2750,rack:""},{id:"AM-028",name:"AMAZZA ONE PC FLORA",price:2750,rack:""},{id:"AM-029",name:"AMAZZA TABLE TOP FIONA",price:2750,rack:""},{id:"AM-030",name:"AMAZZA TABLE TOP STEELA",price:2750,rack:""}],"VANITY & BASIN":[{id:"VB-001",name:"VANITY EVG SERIES",price:3400,rack:""},{id:"VB-002",name:"VANITY LOUVRE SERIES",price:4250,rack:""},{id:"VB-003",name:"VANITY ED SERIES",price:3300,rack:""},{id:"VB-004",name:"MULTI FUNCTION SINK",price:10500,rack:""},{id:"VB-005",name:"TABLE TOP",price:1050,rack:""},{id:"VB-006",name:"WASHBASIN",price:1250,rack:""},{id:"VB-007",name:"SINK",price:1800,rack:""},{id:"VB-008",name:"HALF PADESTAL",price:1850,rack:""},{id:"VB-009",name:"VANITY UV SERIES",price:3950,rack:""},{id:"VB-010",name:"WASHBASIN SET FUSION",price:1350,rack:""},{id:"VB-011",name:"WASHBASIN SET JUPITER",price:1350,rack:""},{id:"VB-012",name:"WASHBASIN SET ALABA 18X14",price:1250,rack:""},{id:"VB-013",name:"VANITY 32X18",price:5250,rack:""}],"MIXERS & SINGLE LEVER":[{id:"MX-001",name:"SINGLE LEVER 12'' OPEL",price:2450,rack:""},{id:"MX-002",name:"SINGLE LEVER ARIA 12''",price:2450,rack:""},{id:"MX-003",name:"DIVERTER SPOUT",price:480,rack:""},{id:"MX-004",name:"DIVERTER 35MM WITH SPOUT",price:2850,rack:""},{id:"MX-005",name:"DIVERTER 40MM WITH SPOUT",price:3150,rack:""},{id:"MX-006",name:"SINGLE LEVER SWAN NECK",price:1850,rack:""},{id:"MX-007",name:"NON TELEPHONIC MIXER",price:1350,rack:""},{id:"MX-008",name:"3 IN 1 SPOUT",price:720,rack:""},{id:"MX-009",name:"SINGLE LEVER SINK MIXER",price:2450,rack:""}],"WASTE COUPLING & TRAPS":[{id:"WC-001",name:"BOTTLE TRAP",price:450,rack:"C29"},{id:"WC-002",name:"WASTE PIPE TOP GEAR",price:45,rack:"C19202324"},{id:"WC-003",name:"WASTE COUPLING DBC",price:19,rack:""},{id:"WC-004",name:"SYPHON SET",price:280,rack:"C36"},{id:"WC-005",name:"SINK COUPLING 3''",price:50,rack:"A05"},{id:"WC-006",name:"SINK COUPLING SQUARE",price:150,rack:"A01A05"},{id:"WC-007",name:"WASTE COUPLING HEAVY",price:62,rack:"C30C34"},{id:"WC-008",name:"WASTE COUPLING MEDIUM",price:45,rack:"A36"},{id:"WC-009",name:"SINK COUPLING 4'' ROUND",price:75,rack:"C21C22"},{id:"WC-010",name:"SS WASTE COUPLING",price:75,rack:""},{id:"WC-011",name:"FLEXIBLE WASTE PIPE",price:28,rack:"C12C16"},{id:"WC-012",name:"SYPHONE WASHER",price:45,rack:""},{id:"WC-013",name:"SS SINK WASTE (BUCKET)",price:80,rack:"C8"},{id:"WC-014",name:"PVC WASTE COUPLING",price:20,rack:"UPPERC49"}],"ANGLE COCK & BALL VALVE":[{id:"AB-001",name:"GAS TESTED BALL VALVE 1/2''",price:105,rack:"A17"},{id:"AB-002",name:"2 IN 1 ANGLE COCK SS",price:150,rack:"A13"},{id:"AB-003",name:"PTMT ANGLE COCK",price:75,rack:"C29C33"},{id:"AB-004",name:"ANGLE COCK SS HEAVY",price:90,rack:"A14"},{id:"AB-005",name:"JMC BALL VALVE 1/2''",price:210,rack:"A18"},{id:"AB-006",name:"MS ANGLE COCK",price:38,rack:"A14(1)"},{id:"AB-007",name:"NOZZLE BALL VALVE IMPORTED",price:140,rack:"A13(1)"},{id:"AB-008",name:"NOZZLE BALL VALVE ARENA",price:155,rack:"A13(2)"},{id:"AB-009",name:"GAS TESTED BALL VALVE 3/4''",price:180,rack:"A17(1)"},{id:"AB-010",name:"JMC BALL VALVE 3/4''",price:300,rack:""},{id:"AB-011",name:"ARENA GOLD 1''",price:750,rack:"A18(1)"},{id:"AB-012",name:"ARENA GOLD 3/4''",price:350,rack:"A18(2)"},{id:"AB-013",name:"VIVA 1/2'",price:90,rack:"A23"},{id:"AB-014",name:"VIVA 1''",price:220,rack:"A23(1)"},{id:"AB-015",name:"VIVA 3/4''",price:90,rack:"A23(2)"},{id:"AB-016",name:"VIVA GOLD 1''",price:450,rack:"A23(3)"},{id:"AB-017",name:"VIVA GOLD 3/4''",price:320,rack:"A23(4)"},{id:"AB-018",name:"SS ANGLE COCK BODY",price:40,rack:""}],"BASIC TAPS & COCKS":[{id:"BT-001",name:"12'' PILLAR COCK",price:850,rack:""},{id:"BT-002",name:"PILLAR COCK IMPORTED",price:150,rack:"A86"},{id:"BT-003",name:"SWAN NECK PTMT",price:175,rack:"UPPERC29C33"},{id:"BT-004",name:"PTMT LONG BODY",price:75,rack:"UPPERC29C33(1)"},{id:"BT-005",name:"PTMT BIB COCK",price:62,rack:"C29C33(1)"},{id:"BT-006",name:"BIB COCK DARSH",price:36,rack:""},{id:"BT-007",name:"WASHING MACHINE TAP SS",price:75,rack:"A19"},{id:"BT-008",name:"SHORT BALL COCK",price:60,rack:""},{id:"BT-009",name:"LONG BODY SS",price:100,rack:"A15"},{id:"BT-010",name:"UMBRELLA BALL COCK",price:120,rack:"C38C42"},{id:"BT-011",name:"SWAN NECK SS",price:130,rack:"A15(1)"},{id:"BT-012",name:"TANK BALL COCK 15MM",price:95,rack:""},{id:"BT-013",name:"PVC LONG BODY DBC",price:42,rack:""},{id:"BT-014",name:"PVC BIB COCK DBC",price:37,rack:""},{id:"BT-015",name:"WASHING BIB COCK",price:220,rack:""},{id:"BT-016",name:"TURBO BIB COCK",price:200,rack:""},{id:"BT-017",name:"PTMT 2 IN 1 BIB COCK",price:165,rack:"UPPERC29"},{id:"BT-018",name:"TURBO LONG BODY",price:260,rack:""},{id:"BT-019",name:"2 IN 1 BIB COCK IMPORTED",price:170,rack:"A90"},{id:"BT-020",name:"ONE PIECE BALL COCK",price:90,rack:"C44"},{id:"BT-021",name:"PTMT PILLAR COCK (H)",price:75,rack:"C29C33(2)"}],"JET SPRAY":[{id:"JS-001",name:"JET SPRAY AMERICAN 1M",price:95,rack:""},{id:"JS-002",name:"JET SPRAY MULTI 1M",price:95,rack:""},{id:"JS-003",name:"JET SPRAY REGULAR 1M",price:95,rack:""},{id:"JS-004",name:"JET SPRAY REGULAR 1.5M",price:110,rack:""},{id:"JS-005",name:"JET SPRAY MULTI 1.5M",price:110,rack:""},{id:"JS-006",name:"AMERICAN JET 1.5M",price:110,rack:""}],"PIPES & CONNECTIONS":[{id:"PC-001",name:"CP NIPPLE 1''",price:11,rack:"A91"},{id:"PC-002",name:"CP NIPPLE 1.5''",price:15,rack:"A91(1)"},{id:"PC-003",name:"CP NIPPLE 2''",price:20,rack:"A87"},{id:"PC-004",name:"CP NIPPLE 2.5''",price:25,rack:"A87(1)"},{id:"PC-005",name:"CP NIPPLE 3''",price:30,rack:"A83"},{id:"PC-006",name:"PTMT CONNECTION 18''",price:32,rack:""},{id:"PC-007",name:"PTMT CONNECTION 24''",price:33,rack:""},{id:"PC-008",name:"PTMT CONNECTION 30''",price:37,rack:""},{id:"PC-009",name:"PTMT CONNECTION 36''",price:42,rack:""},{id:"PC-010",name:"CHAIN TUBE 1 MTR HEAVY",price:125,rack:"C03"},{id:"PC-011",name:"CHAIN TUBE 1.5 MTR HEAVY",price:150,rack:"C77"},{id:"PC-012",name:"WIRE CONNECTION 18''",price:50,rack:""},{id:"PC-013",name:"WIRE CONNECTION 24''",price:55,rack:""},{id:"PC-014",name:"1.5MTR OUTLET PIPE",price:45,rack:""},{id:"PC-015",name:"3 MTR OUTLET PIPE",price:70,rack:""},{id:"PC-016",name:"WIRE CONNECTION 30''",price:60,rack:""},{id:"PC-017",name:"WIRE CONNECTION 36''",price:67,rack:""},{id:"PC-018",name:"INLET PIPE 2 MTR",price:160,rack:"A76A80"},{id:"PC-019",name:"INLET PIPE 3 MTR",price:180,rack:"A88A68"},{id:"PC-020",name:"CHAIN TUBE 1.5 MTR LIGHT",price:150,rack:"C76"}],"KHUNTI & GRAB BARS":[{id:"KG-001",name:"SS CADBURY KHUNTI 6 point",price:108,rack:""},{id:"KG-002",name:"SS KHUNTI L 6 POINT",price:72,rack:""},{id:"KG-003",name:"KHUNTI 6 POINT HEAVY",price:102,rack:""},{id:"KG-004",name:"KHUNTI",price:96,rack:""},{id:"KG-005",name:"CADBURY 8 POINT SS",price:160,rack:""},{id:"KG-006",name:"KHUNTI SS L HEAVY 6 POINT",price:72,rack:""},{id:"KG-007",name:"SS L KHUNTI HEAVY 8 POINT",price:96,rack:""},{id:"KG-008",name:"9'' GRAB BAR",price:130,rack:"A25(2)"},{id:"KG-009",name:"15'' GRAB BAR",price:180,rack:"A25(3)"},{id:"KG-010",name:"BOTTLE KHUNTI 6 POINT",price:108,rack:""},{id:"KG-011",name:"JALI KHUNTI 6 POINT ROSE GOLD",price:120,rack:""},{id:"KG-012",name:"CADBURY BLACK KHUNTI SS",price:114,rack:""}],"OTHER ACCESSORIES":[{id:"OA-001",name:"BATHROOM ACCESSORIES",price:1000,rack:""},{id:"OA-002",name:"PITAL TAP",price:175,rack:""},{id:"OA-003",name:"L BEND",price:120,rack:""},{id:"OA-004",name:"A2 DISC",price:40,rack:""},{id:"OA-005",name:"Z DISC",price:45,rack:""},{id:"OA-006",name:"CI TAP JMC",price:90,rack:"A19(1)"},{id:"OA-007",name:"TUMBLER FROSTED",price:275,rack:"A29(1)"},{id:"OA-008",name:"24'' ARM",price:350,rack:"A07"},{id:"OA-009",name:"GUM WASHER",price:55,rack:"C29(1)"},{id:"OA-010",name:"WC CONNECTOR",price:175,rack:""},{id:"OA-011",name:"SINK STRAINER",price:40,rack:""},{id:"OA-012",name:"LONG BEND",price:60,rack:"UPPERA33"},{id:"OA-013",name:"CONCEALED DISC 1/2''",price:85,rack:""},{id:"OA-014",name:"TEFLON TAPE SINGLE PC",price:9,rack:"A21A17"},{id:"OA-015",name:"CENTRE HOLE CONNECTION",price:100,rack:""},{id:"OA-016",name:"GARDEN GUN",price:80,rack:"C17"},{id:"OA-017",name:"FREIGHT",price:1,rack:""},{id:"OA-018",name:"MIXER FITTING",price:10,rack:""},{id:"OA-019",name:"FAUCET HANDLE",price:45,rack:""},{id:"OA-020",name:"WARSEL",price:50,rack:""},{id:"OA-021",name:"KIRAYA",price:100,rack:""},{id:"OA-022",name:"return",price:0,rack:""},{id:"OA-023",name:"MIXER WARSEL",price:50,rack:""},{id:"OA-024",name:"NOZZLE OUTER RING",price:38,rack:""},{id:"OA-025",name:"TRANSPORTATION",price:300,rack:""},{id:"OA-026",name:"FLEXIBLE SPOUT",price:75,rack:""},{id:"OA-027",name:"CENTRE HOLE LEG",price:50,rack:""},{id:"OA-028",name:"CRUTCH",price:190,rack:""},{id:"OA-029",name:"JOINTER",price:40,rack:""},{id:"OA-030",name:"FOAM FLOW",price:20,rack:""},{id:"OA-031",name:"RACK BOLT ASIAN",price:22,rack:""},{id:"OA-032",name:"MIXER LEG",price:230,rack:""},{id:"OA-033",name:"l bend nipple",price:20,rack:""},{id:"OA-034",name:"FOOD BASKET",price:310,rack:""},{id:"OA-035",name:"HINGES",price:65,rack:""},{id:"OA-036",name:"HANDLE",price:50,rack:""},{id:"OA-037",name:"LEG SET",price:105,rack:""},{id:"OA-038",name:"L N KEY",price:5,rack:""},{id:"OA-039",name:"NOZZLE INNER RING",price:38,rack:""},{id:"OA-040",name:"CONNECTION PIPE WASHER",price:50,rack:""},{id:"OA-041",name:"LONG BEND WASHER",price:12,rack:""},{id:"OA-042",name:"TAP NOZZLE",price:38,rack:""},{id:"OA-043",name:"GLASSI",price:10,rack:""},{id:"OA-044",name:"NOZZLE MUTI",price:38,rack:""},{id:"OA-045",name:"TIK TIK FITTING",price:100,rack:""},{id:"OA-046",name:"OPEL HANDLE",price:0,rack:""},{id:"OA-047",name:"MILANO H/F GUN",price:190,rack:""},{id:"OA-048",name:"WALL HUNG RACK BOLT 16MM",price:290,rack:"C25"},{id:"OA-049",name:"CONCEALED RACK BOLT HEAVY",price:320,rack:"C25(1)"},{id:"OA-050",name:"PLUG (H)",price:2.2,rack:"C33"},{id:"OA-051",name:"CHILAM 3/4''",price:8,rack:"C40"},{id:"OA-052",name:"CHILAM 1/2''",price:5,rack:"C52"},{id:"OA-053",name:"JOINTER 1''",price:1.2,rack:"C48"},{id:"OA-054",name:"JOINTER 3/4''",price:3,rack:"C32"},{id:"OA-055",name:"ACRYLIC TAPE",price:50,rack:"C47"},{id:"OA-056",name:"CLAMP 1 1/2''",price:7,rack:"C46"},{id:"OA-057",name:"CLAMP 1''",price:3.5,rack:"C46(1)"},{id:"OA-058",name:"CLAMP 3/4''",price:3.25,rack:"C46(2)"},{id:"OA-059",name:"BOARD FLANGE",price:20,rack:"C46(3)"},{id:"OA-060",name:"TEFLON TAPE TUBE PACK",price:5,rack:"UPPERC49(1)"},{id:"OA-061",name:"CP FLANGE HEAVY",price:9,rack:"C13"},{id:"OA-062",name:"CAMPER TAP",price:30,rack:"C15"},{id:"OA-063",name:"HEX NIPPLE SS",price:12,rack:"C50"},{id:"OA-064",name:"HEX NIPPLE MS",price:8,rack:"C50(1)"},{id:"OA-065",name:"A2 DISC 27GM",price:35,rack:""},{id:"OA-066",name:"CP FLANGE MEDIUM",price:6,rack:"C09"}]};
+
+/* ===== helpers ===== */
+const fmt=n=>"\u20B9"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2});  // up to 2 decimals — paise preserved
+const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+const dispDate=iso=>{if(!iso)return"\u2014";const[y,m,dd]=iso.split("-");const M=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return dd+" "+(M[(+m)-1]||"")+" "+y;};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const shiftISO=(iso,days)=>{const p=(iso||todayISO()).split("-").map(Number);const dt=new Date(p[0],p[1]-1,p[2]);dt.setDate(dt.getDate()+days);return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");};
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const onlyInt=v=>String(v).replace(/[^0-9]/g,"");
+const onlyDec=v=>{v=String(v).replace(/[^0-9.]/g,"");const i=v.indexOf(".");return i<0?v:v.slice(0,i+1)+v.slice(i+1).replace(/\./g,"");};
+const num=v=>{const n=parseFloat(v);return isNaN(n)?0:n;};
+const round2=n=>Math.round((Number(n)||0)*100)/100;
+const numStr=n=>String(round2(n));
+const MONTHS_FULL=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const monthLabel=key=>{if(!key||key==="unknown")return "Undated";const a=key.split("-");return (MONTHS_FULL[(+a[1])-1]||"")+" "+a[0];};
+
+/* ===== theme palettes ===== */
+function palette(t){
+  if(t==="light")return{bg:"#F5F0E8",sf:"#FFFDF8",cd:"#F3EDE1",bd:"#E3DCCC",ac:"#B8902F",ad:"#9A7826",ag:"rgba(184,144,47,0.12)",tx:"#1A1A1A",tm:"#7A7468",td:"#A59C8C",dn:"#C0473F",su:"#3F9468"};
+  return{bg:"#0D0D0D",sf:"#161616",cd:"#1F1F1F",bd:"#2A2A2A",ac:"#C5A23E",ad:"#A9863A",ag:"rgba(197,162,62,0.12)",tx:"#F2EDE3",tm:"#9A948A",td:"#5E5C56",dn:"#D96A6A",su:"#4CAE7A"};
+}
+
+/* ===== small presentational components (stable identities, theme via prop) ===== */
+function Field({K,label,value,onChange,placeholder,type="text",style={}}){
+  return(<div style={{display:"flex",flexDirection:"column",gap:5,...style}}>
+    {label&&<label style={{fontSize:10,fontWeight:600,color:K.tm,letterSpacing:"0.1em",textTransform:"uppercase"}}>{label}</label>}
+    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"10px 13px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",width:"100%",boxSizing:"border-box",transition:"border-color .2s"}}
+      onFocus={e=>e.target.style.borderColor=K.ac} onBlur={e=>e.target.style.borderColor=K.bd}/></div>);
+}
+function Btn({K,children,onClick,variant="primary",style={},disabled}){
+  const V={primary:{bg:K.ac,color:"#111",bd:"none"},ghost:{bg:"transparent",color:K.tx,bd:"1px solid "+K.bd},danger:{bg:"transparent",color:K.dn,bd:"1px solid "+K.dn},solidDanger:{bg:K.dn,color:"#fff",bd:"none"}}[variant];
+  return(<button disabled={disabled} onClick={onClick} style={{background:V.bg,color:V.color,border:V.bd,borderRadius:10,padding:"10px 18px",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.45:1,transition:"transform .12s",...style}}
+    onMouseDown={e=>!disabled&&(e.currentTarget.style.transform="scale(.97)")} onMouseUp={e=>e.currentTarget.style.transform="scale(1)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>{children}</button>);
+}
+function Confirm({K,msg,onYes,onNo}){
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}} onClick={onNo}>
+    <div onClick={e=>e.stopPropagation()} style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:16,padding:"24px",maxWidth:380,width:"100%",animation:"slideUp .25s ease"}}>
+      <div className="serif" style={{fontSize:22,fontWeight:600,color:K.tx,marginBottom:6}}>Are you sure?</div>
+      <div style={{fontSize:13,color:K.tm,lineHeight:1.5,marginBottom:20}}>{msg}</div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <Btn K={K} variant="ghost" onClick={onNo}>Cancel</Btn>
+        <Btn K={K} variant="solidDanger" onClick={onYes}>Delete</Btn></div></div></div>);
+}
+function Toast({K,msg}){return msg?<div style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",background:K.cd,border:"1px solid "+K.ac,borderRadius:30,padding:"11px 22px",color:K.ac,fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"0 10px 40px rgba(0,0,0,.4)",animation:"fadeIn .3s ease"}}>{msg}</div>:null;}
+
+function ItemDetail({K,detail,purchases,onClose}){
+  if(!detail)return null;
+  const hist=[];
+  purchases.forEach(p=>(p.items||[]).forEach(li=>{if(li.code===detail.code)hist.push({date:p.date,vendor:p.vendor,billNo:p.billNo,qty:Number(li.qty)||0,rate:parseFloat(li.rate)||0,desc:li.desc});}));
+  hist.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9998}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{background:K.sf,borderTop:"1px solid "+K.bd,borderRadius:"22px 22px 0 0",width:"100%",maxWidth:620,maxHeight:"90vh",overflowY:"auto",padding:"22px 20px calc(28px + env(safe-area-inset-bottom))",animation:"slideUp .28s ease"}}>
+      <div style={{fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",color:K.ac,marginBottom:4}}>{detail.cat}</div>
+      <div className="serif" style={{fontSize:26,fontWeight:600,color:K.tx,lineHeight:1.1}}>{detail.name}</div>
+      <div style={{fontSize:11,color:K.tm,marginTop:4}}>Code {detail.code}{detail.rack?" · Rack "+detail.rack:""}</div>
+      <div style={{background:"linear-gradient(135deg,"+K.cd+","+K.sf+")",border:"1px solid "+K.ac,borderRadius:16,padding:18,textAlign:"center",margin:"16px 0"}}>
+        <div className="serif" style={{fontSize:42,fontWeight:700,color:K.ac,lineHeight:1}}>{fmt(detail.avg)}</div>
+        <div style={{fontSize:10,letterSpacing:"0.18em",textTransform:"uppercase",color:K.tm,marginTop:6}}>Weighted Average Cost / pc</div></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:18}}>
+        {[["Total Qty",detail.qty+" pc"],["Total Spend",fmt(detail.val)],["Last Rate",fmt(detail.lastRate)],["Purchases",detail.count],["Lowest",fmt(detail.min)],["Highest",fmt(detail.max)]].map((s,i)=>(
+          <div key={i} style={{background:K.cd,borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:700,color:K.tx}}>{s[1]}</div>
+            <div style={{fontSize:9,letterSpacing:".08em",textTransform:"uppercase",color:K.tm,marginTop:3}}>{s[0]}</div></div>))}</div>
+      <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:K.tm,marginBottom:8}}>Purchase history</div>
+      {hist.map((h,i)=>(<div key={i} style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:10,padding:"10px 12px",marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+        <div style={{minWidth:0}}><div style={{fontSize:11,color:K.tm}}>{dispDate(h.date)}{h.vendor?" · "+h.vendor:""}{h.billNo?" · #"+h.billNo:""}</div>
+          <div style={{fontWeight:600,fontSize:14,color:K.tx}}>{h.qty} pc {"\u00D7"} <span style={{color:K.ac}}>{fmt(h.rate)}</span></div>
+          {h.desc?<div style={{fontSize:11,color:K.tm,fontStyle:"italic",marginTop:2}}>{h.desc}</div>:null}</div>
+        <div style={{fontSize:12,color:K.tm,whiteSpace:"nowrap"}}>{fmt(h.qty*h.rate)}</div></div>))}
+      <Btn K={K} variant="ghost" onClick={onClose} style={{width:"100%",marginTop:10}}>Close</Btn></div></div>);
+}
+
+/* ===================== APP ===================== */
+function App(){
+  const[theme,setTheme]=useState("dark");
+  const K=palette(theme);
+  const[view,setView]=useState("entry");
+  const[catalog,setCatalog]=useState(DEFAULT_CATALOG);
+  const[purchases,setPurchases]=useState([]);
+
+  // working purchase
+  const[pDate,setPDate]=useState(todayISO());
+  const[pVendor,setPVendor]=useState("");
+  const[pBillNo,setPBillNo]=useState("");
+  const[pNote,setPNote]=useState("");
+  const[lines,setLines]=useState([]); // {code,name,rack,cat,qty(number),rate(string),desc}
+  const[editingId,setEditingId]=useState(null);
+
+  // catalog browse
+  const[selCat,setSelCat]=useState(Object.keys(DEFAULT_CATALOG)[0]);
+  const[search,setSearch]=useState("");
+  const[gSearch,setGSearch]=useState("");
+
+  // managers / ui
+  const[showMgr,setShowMgr]=useState(false);
+  const[showBackup,setShowBackup]=useState(false);
+  const[nName,setNName]=useState("");const[nPrice,setNPrice]=useState("");const[nCode,setNCode]=useState("");
+  const[newCatName,setNewCatName]=useState("");
+  const[editIdx,setEditIdx]=useState(-1);const[editData,setEditData]=useState({});
+  const[confirm,setConfirm]=useState(null);
+  const[toast,setToast]=useState("");
+  const[detail,setDetail]=useState(null);
+  const[repSearch,setRepSearch]=useState("");
+  const[repSort,setRepSort]=useState({k:"name",d:1});
+
+  // sell rate calculator
+  const[salesRows,setSalesRows]=useState([]);
+  const[salesSearch,setSalesSearch]=useState("");
+  const[salesSort,setSalesSort]=useState({k:"name",d:1});
+  const[salesPickerOpen,setSalesPickerOpen]=useState(false);
+  const[sGlobal,setSGlobal]=useState("");
+  const[sCat,setSCat]=useState(Object.keys(DEFAULT_CATALOG)[0]);
+  const[sFilter,setSFilter]=useState("");
+  const[scName,setScName]=useState("");const[scCost,setScCost]=useState("");
+
+  // history month folding
+  const[openMonths,setOpenMonths]=useState({});
+
+  // load
+  useEffect(()=>{
+    try{const t=localStorage.getItem("amazza-pt-theme");if(t)setTheme(t);}catch(e){}
+    try{const c=localStorage.getItem("amazza-pt-catalog-v1");if(c)setCatalog(JSON.parse(c));}catch(e){}
+    try{const p=localStorage.getItem("amazza-pt-purchases-v1");if(p)setPurchases(JSON.parse(p));}catch(e){}
+    try{const s=localStorage.getItem("amazza-pt-sales-v1");if(s)setSalesRows(JSON.parse(s));}catch(e){}
+  },[]);
+  useEffect(()=>{document.body.style.background=K.bg;},[K.bg]);
+  useEffect(()=>{const h=()=>{const a=document.activeElement;if(a&&a.tagName==="INPUT"&&a.type==="number")a.blur();};window.addEventListener("wheel",h,{passive:true});return()=>window.removeEventListener("wheel",h);},[]);
+
+  const flash=m=>{setToast(m);setTimeout(()=>setToast(""),2200);};
+  const saveCatalog=nc=>{setCatalog(nc);try{localStorage.setItem("amazza-pt-catalog-v1",JSON.stringify(nc));}catch(e){}};
+  const savePurchases=list=>{setPurchases(list);try{localStorage.setItem("amazza-pt-purchases-v1",JSON.stringify(list));}catch(e){}};
+  const saveSales=list=>{setSalesRows(list);try{localStorage.setItem("amazza-pt-sales-v1",JSON.stringify(list));}catch(e){}};
+  const toggleTheme=()=>{const t=theme==="dark"?"light":"dark";setTheme(t);try{localStorage.setItem("amazza-pt-theme",t);}catch(e){}};
+
+  // ----- per-item stats (DERIVED — single source of truth) -----
+  const catOf=useMemo(()=>{const m={};Object.entries(catalog).forEach(([c,arr])=>arr.forEach(p=>m[p.id]=c));return m;},[catalog]);
+  const stats=useMemo(()=>{
+    const map={};
+    const sorted=[...purchases].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+    sorted.forEach(p=>(p.items||[]).forEach(li=>{
+      const code=li.code;const q=Number(li.qty)||0;const r=parseFloat(li.rate)||0;if(q<=0)return;
+      if(!map[code])map[code]={code,name:li.name||code,rack:li.rack||"",cat:catOf[code]||li.cat||"Other",qty:0,val:0,count:0,lastRate:0,lastDate:"",min:Infinity,max:0};
+      const m=map[code];m.qty+=q;m.val+=q*r;m.count++;m.lastRate=r;m.lastDate=p.date;m.min=Math.min(m.min,r);m.max=Math.max(m.max,r);
+    }));
+    Object.values(map).forEach(m=>{m.avg=m.qty>0?m.val/m.qty:0;if(m.min===Infinity)m.min=0;});
+    return map;
+  },[purchases,catOf]);
+  const lastRateOf=code=>stats[code]?String(stats[code].lastRate):"";
+
+  // ----- working purchase ops -----
+  const lineQty=useMemo(()=>{const m={};lines.forEach(l=>m[l.code]=(m[l.code]||0)+l.qty);return m;},[lines]);
+  const addLine=p=>{
+    const ex=lines.findIndex(l=>l.code===p.id);
+    if(ex>=0){const u=[...lines];u[ex]={...u[ex],qty:u[ex].qty+1};setLines(u);}
+    else setLines([...lines,{code:p.id,name:p.name,rack:p.rack||"",cat:catOf[p.id]||"Other",qty:1,rate:lastRateOf(p.id),desc:""}]);
+  };
+  const updateLine=(idx,f,v)=>{const u=[...lines];u[idx]={...u[idx],[f]:f==="qty"?(Math.max(0,Number(v)||0)):v};setLines(u);};
+  const removeLine=idx=>{const u=lines.filter((_,i)=>i!==idx);setLines(u);};
+  const addCustomLine=()=>{if(!nName||!nPrice)return;setLines([...lines,{code:"CUSTOM-"+uid(),name:nName,rack:nCode||"",cat:"Custom",qty:1,rate:String(Number(nPrice)||0),desc:""}]);setNName("");setNPrice("");setNCode("");};
+
+  const resetWorking=()=>{setLines([]);setPDate(todayISO());setPVendor("");setPBillNo("");setPNote("");setEditingId(null);setGSearch("");setSearch("");};
+  const subtotal=useMemo(()=>lines.reduce((s,l)=>s+l.qty*(parseFloat(l.rate)||0),0),[lines]);
+  const totalQty=useMemo(()=>lines.reduce((s,l)=>s+l.qty,0),[lines]);
+
+  const savePurchase=()=>{
+    if(lines.length===0)return flash("Add at least one item");
+    for(const l of lines){
+      if(!(l.qty>0))return flash(l.name+" — quantity must be more than 0");
+      if(l.rate===""||l.rate==null||isNaN(parseFloat(l.rate))||parseFloat(l.rate)<0)return flash(l.name+" — enter a valid rate");
+    }
+    const rec={
+      id:editingId||uid(),date:pDate||todayISO(),vendor:pVendor.trim(),billNo:pBillNo.trim(),note:pNote.trim(),
+      items:lines.map(l=>({code:l.code,name:l.name,rack:l.rack,cat:l.cat,qty:Number(l.qty),rate:parseFloat(l.rate),desc:(l.desc||"").trim()})),
+      total:subtotal
+    };
+    let list;
+    if(editingId){const i=purchases.findIndex(p=>p.id===editingId);list=[...purchases];if(i>=0)list[i]=rec;else list=[rec,...purchases];}
+    else list=[rec,...purchases];
+    savePurchases(list);resetWorking();flash(editingId?"Purchase updated":"Purchase saved");setView("report");
+  };
+  const loadPurchase=p=>{
+    setEditingId(p.id);setPDate(p.date);setPVendor(p.vendor||"");setPBillNo(p.billNo||"");setPNote(p.note||"");
+    setLines((p.items||[]).map(li=>({code:li.code,name:li.name,rack:li.rack||"",cat:li.cat||catOf[li.code]||"Other",qty:Number(li.qty)||0,rate:String(li.rate),desc:li.desc||""})));
+    setView("entry");flash("Loaded for editing");
+  };
+  const deletePurchase=p=>setConfirm({msg:'Delete this purchase'+(p.vendor?' from '+p.vendor:'')+' dated '+dispDate(p.date)+'? Averages will recompute.',action:()=>{savePurchases(purchases.filter(x=>x.id!==p.id));if(editingId===p.id)resetWorking();setConfirm(null);flash("Purchase deleted");}});
+
+  // ----- PDF / print -----
+  const printPurchase=d=>{
+    const items=(d.items||[]).filter(i=>(Number(i.qty)||0)>0);
+    if(items.length===0){flash("Add items first");return;}
+    const total=items.reduce((s,i)=>s+(Number(i.qty)||0)*(parseFloat(i.rate)||0),0);
+    const tQty=items.reduce((s,i)=>s+(Number(i.qty)||0),0);
+    const rows=items.map((it,idx)=>{const amt=(Number(it.qty)||0)*(parseFloat(it.rate)||0);
+      return `<tr><td class="c">${idx+1}</td><td><div class="nm">${esc(it.name)}</div>${it.desc?`<div class="ds">${esc(it.desc)}</div>`:""}</td><td class="mono">${esc(it.rack)||"\u2014"}</td><td class="r">${Number(it.qty)||0}</td><td class="r">${fmt(parseFloat(it.rate)||0)}</td><td class="r b">${fmt(amt)}</td></tr>`;}).join("");
+    const doc=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Purchase ${esc(d.billNo)||dispDate(d.date)}</title><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet"><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Montserrat,sans-serif;color:#1a1a1a;padding:40px;max-width:820px;margin:0 auto;font-size:13px}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C5A23E;padding-bottom:18px;margin-bottom:22px}.brand{font-family:"Cormorant Garamond",serif;font-size:30px;font-weight:700;letter-spacing:.06em}.sub{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#555;margin-top:2px}.co{font-size:11px;color:#444;margin-top:8px;line-height:1.5}.doc{font-size:18px;font-weight:700;color:#C5A23E;text-align:right}.meta{font-size:12px;color:#333;margin-top:8px;text-align:right;line-height:1.7}.vend{background:#f7f3ea;border-radius:8px;padding:14px 16px;margin-bottom:20px}.lbl{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#777;margin-bottom:5px}table{width:100%;border-collapse:collapse;margin-bottom:18px}th{background:#1a1a1a;color:#fff;padding:9px 10px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;text-align:left}th.r,td.r{text-align:right}th.c,td.c{text-align:center}td{padding:9px 10px;border-bottom:1px solid #e2ddd2;vertical-align:top}.nm{font-weight:600}.ds{font-size:11px;color:#666;font-style:italic;margin-top:3px}.mono{font-family:monospace;font-size:11px;color:#555}.b{font-weight:700}.tot{display:flex;justify-content:flex-end}.totbox{width:280px}.trow{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:#444}.grand{display:flex;justify-content:space-between;padding:11px 0 4px;border-top:2px solid #C5A23E;margin-top:6px;font-size:19px;font-weight:700}.note{margin-top:22px;background:#f7f3ea;border-radius:8px;padding:14px 16px}.foot{margin-top:28px;padding-top:14px;border-top:1px solid #ccc;font-size:11px;color:#666;display:flex;justify-content:space-between}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:18px}}</style></head><body><div class="head"><div><div class="brand">AMAZZA</div><div class="sub">Premium Bath &amp; Sanitaryware</div><div class="co">Sky Impex<br>Purchase Record</div></div><div><div class="doc">PURCHASE</div><div class="meta">${d.billNo?`<strong>Bill #:</strong> ${esc(d.billNo)}<br>`:""}<strong>Date:</strong> ${dispDate(d.date)}</div></div></div><div class="vend"><div class="lbl">Supplier / Vendor</div><div style="font-weight:600;font-size:15px">${esc(d.vendor)||"\u2014"}</div></div><table><thead><tr><th class="c">#</th><th>Item</th><th>Rack</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="tot"><div class="totbox"><div class="trow"><span>Total Quantity</span><span>${tQty} pc</span></div><div class="grand"><span>Total</span><span>${fmt(total)}</span></div></div></div>${d.note?`<div class="note"><div class="lbl">Note</div><div style="font-size:12px;color:#444;line-height:1.5;white-space:pre-wrap">${esc(d.note)}</div></div>`:""}<div class="foot"><span>Generated by Amazza Purchase Tracker</span><span>${dispDate(d.date)}</span></div></body></html>`;
+    const w=window.open("","_blank");
+    if(!w){flash("Allow pop-ups to generate the PDF");return;}
+    w.document.write(doc);w.document.close();setTimeout(()=>{try{w.focus();w.print();}catch(e){}},450);
+  };
+
+  // ----- catalog manager ops -----
+  const addToCat=()=>{if(!nName||!nPrice)return;const nc={...catalog};if(!nc[selCat])nc[selCat]=[];nc[selCat]=[...nc[selCat],{id:"CUS-"+uid().toUpperCase(),name:nName,price:Number(nPrice)||0,rack:nCode||""}];saveCatalog(nc);setNName("");setNPrice("");setNCode("");flash("Item added to catalogue");};
+  const rmFromCat=(cat,idx)=>setConfirm({msg:'Remove "'+catalog[cat][idx].name+'" from the catalogue? (Past purchase history is kept.)',action:()=>{saveCatalog({...catalog,[cat]:catalog[cat].filter((_,i)=>i!==idx)});setConfirm(null);}});
+  const startEdit=(idx,p)=>{setEditIdx(idx);setEditData({...p});};
+  const saveEdit=()=>{if(editIdx<0)return;const nc={...catalog};nc[selCat]=[...nc[selCat]];nc[selCat][editIdx]={...nc[selCat][editIdx],name:editData.name,price:Number(editData.price)||0,rack:editData.rack||""};saveCatalog(nc);setEditIdx(-1);};
+  const moveItem=(fromCat,idx,toCat)=>{if(fromCat===toCat)return;const nc={...catalog};const item=nc[fromCat][idx];nc[fromCat]=nc[fromCat].filter((_,i)=>i!==idx);if(!nc[toCat])nc[toCat]=[];nc[toCat]=[...nc[toCat],item];saveCatalog(nc);};
+  const addCategory=()=>{const n=newCatName.trim();if(!n||catalog[n])return;saveCatalog({...catalog,[n]:[]});setSelCat(n);setNewCatName("");flash("Category added");};
+  const removeCategory=cat=>{if(catalog[cat]&&catalog[cat].length>0)return flash("Empty the category first");setConfirm({msg:'Delete empty category "'+cat+'"?',action:()=>{const nc={...catalog};delete nc[cat];saveCatalog(nc);if(selCat===cat)setSelCat(Object.keys(nc)[0]||"");setConfirm(null);}});};
+
+  // ----- backup -----
+  const exportData=()=>{const blob=new Blob([JSON.stringify({version:1,catalog,purchases,sales:salesRows},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="amazza-purchases-"+todayISO()+".json";a.click();flash("Backup downloaded");};
+  const importData=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(d.catalog)saveCatalog(d.catalog);if(d.purchases)savePurchases(d.purchases);if(d.sales)saveSales(d.sales);setShowBackup(false);flash("Backup restored");}catch(x){flash("Could not read file");}};r.readAsText(f);};
+  const wipeAll=()=>setConfirm({msg:"Erase ALL purchases and reset the catalogue? This cannot be undone.",action:()=>{savePurchases([]);saveCatalog(DEFAULT_CATALOG);saveSales([]);setConfirm(null);setShowBackup(false);flash("All data erased");}});
+
+  // ----- catalog browse filter -----
+  const totalP=useMemo(()=>Object.values(catalog).reduce((s,a)=>s+a.length,0),[catalog]);
+  const filtered=useMemo(()=>{
+    const out=[];
+    if(gSearch.trim()){const w=gSearch.toLowerCase().trim().split(/\s+/);Object.entries(catalog).forEach(([cat,arr])=>arr.forEach(p=>{const hay=(p.name+" "+(p.rack||"")+" "+p.id).toLowerCase();if(w.every(x=>hay.includes(x)))out.push({...p,_cat:cat});}));}
+    else{(catalog[selCat]||[]).forEach(p=>{if(!search.trim())out.push({...p,_cat:selCat});else{const hay=(p.name+" "+(p.rack||"")+" "+p.id).toLowerCase();const w=search.toLowerCase().trim().split(/\s+/);if(w.every(x=>hay.includes(x)))out.push({...p,_cat:selCat});}});}
+    return out;
+  },[catalog,selCat,search,gSearch]);
+
+  // ----- report rows -----
+  const repRows=useMemo(()=>{
+    let rows=Object.values(stats);
+    if(repSearch.trim()){const w=repSearch.toLowerCase().trim().split(/\s+/);rows=rows.filter(r=>{const hay=(r.name+" "+r.cat+" "+r.code).toLowerCase();return w.every(x=>hay.includes(x));});}
+    const{k,d}=repSort;rows.sort((a,b)=>{let x=a[k],y=b[k];if(typeof x==="string"){x=x.toLowerCase();y=y.toLowerCase();return x<y?-d:x>y?d:0;}return(x-y)*d;});
+    return rows;
+  },[stats,repSearch,repSort]);
+  const grandSpend=useMemo(()=>purchases.reduce((s,p)=>s+(Number(p.total)||0),0),[purchases]);
+
+  // ----- sell rate calculator -----
+  const inSales=useMemo(()=>{const m={};salesRows.forEach(r=>m[r.code]=true);return m;},[salesRows]);
+  const salesPickRows=useMemo(()=>{
+    const out=[];
+    if(sGlobal.trim()){const w=sGlobal.toLowerCase().trim().split(/\s+/);Object.entries(catalog).forEach(([cat,arr])=>arr.forEach(p=>{const hay=(p.name+" "+(p.rack||"")+" "+p.id).toLowerCase();if(w.every(x=>hay.includes(x)))out.push({...p,_cat:cat});}));}
+    else{(catalog[sCat]||[]).forEach(p=>{if(!sFilter.trim())out.push({...p,_cat:sCat});else{const hay=(p.name+" "+(p.rack||"")+" "+p.id).toLowerCase();const w=sFilter.toLowerCase().trim().split(/\s+/);if(w.every(x=>hay.includes(x)))out.push({...p,_cat:sCat});}});}
+    return out;
+  },[catalog,sCat,sFilter,sGlobal]);
+  const addSalesItem=p=>{
+    if(salesRows.some(r=>r.code===p.id))return flash(p.name+" is already in the list");
+    const avg=stats[p.id]?stats[p.id].avg:0;
+    saveSales([...salesRows,{code:p.id,name:p.name,cat:catOf[p.id]||p._cat||"Other",rack:p.rack||"",cost:avg>0?numStr(avg):"",extra:"",pct:"",sell:""}]);
+  };
+  const addSalesCustom=()=>{if(!scName)return;saveSales([...salesRows,{code:"SX-"+uid(),name:scName,cat:"Custom",rack:"",cost:scCost?numStr(num(scCost)):"",extra:"",pct:"",sell:""}]);setScName("");setScCost("");};
+  const removeSalesRow=i=>saveSales(salesRows.filter((_,x)=>x!==i));
+  const clearSales=()=>{if(salesRows.length===0)return;setConfirm({msg:"Clear all "+salesRows.length+" item(s) from the sell rate calculator? (Your catalogue and purchases are kept.)",action:()=>{saveSales([]);setConfirm(null);}});};
+  const refillAvg=i=>{const r=salesRows[i];const avg=stats[r.code]?stats[r.code].avg:0;if(avg<=0)return;changeCost(i,numStr(avg));};
+  const changeCost=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],cost:v};const net=num(r.cost)+num(r.extra);if(r.pct!==""&&r.pct!=null){r.sell=net>0?numStr(net*(1+num(r.pct)/100)):r.sell;}else if(r.sell!==""){r.pct=net>0?numStr((num(r.sell)/net-1)*100):r.pct;}u[i]=r;saveSales(u);};
+  const changeExtra=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],extra:v};const net=num(r.cost)+num(r.extra);if(r.pct!==""&&r.pct!=null){r.sell=net>0?numStr(net*(1+num(r.pct)/100)):r.sell;}else if(r.sell!==""){r.pct=net>0?numStr((num(r.sell)/net-1)*100):r.pct;}u[i]=r;saveSales(u);};
+  const changePct=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],pct:v};const net=num(r.cost)+num(r.extra);r.sell=net>0?numStr(net*(1+num(v)/100)):r.sell;u[i]=r;saveSales(u);};
+  const changeSell=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],sell:v};const net=num(r.cost)+num(r.extra);if(net>0)r.pct=numStr((num(v)/net-1)*100);u[i]=r;saveSales(u);};
+  const salesView=useMemo(()=>{
+    let rows=salesRows.map((r,i)=>({...r,_i:i,net:num(r.cost)+num(r.extra),profit:num(r.sell)-(num(r.cost)+num(r.extra))}));
+    if(salesSearch.trim()){const w=salesSearch.toLowerCase().trim().split(/\s+/);rows=rows.filter(r=>{const hay=(r.name+" "+r.cat+" "+r.code+" "+(r.rack||"")).toLowerCase();return w.every(x=>hay.includes(x));});}
+    const{k,d}=salesSort;
+    rows.sort((a,b)=>{let x,y;
+      if(k==="name"){x=a.name.toLowerCase();y=b.name.toLowerCase();return x<y?-d:x>y?d:0;}
+      if(k==="pct"){x=num(a.pct);y=num(b.pct);}else if(k==="sell"){x=num(a.sell);y=num(b.sell);}else if(k==="cost"){x=num(a.cost);y=num(b.cost);}else if(k==="net"){x=a.net;y=b.net;}else if(k==="profit"){x=a.profit;y=b.profit;}else{x=a.name.toLowerCase();y=b.name.toLowerCase();return x<y?-d:x>y?d:0;}
+      return(x-y)*d;});
+    return rows;
+  },[salesRows,salesSearch,salesSort]);
+  const salesAvgMarkup=useMemo(()=>{const v=salesRows.filter(r=>r.pct!==""&&r.pct!=null).map(r=>num(r.pct));if(v.length===0)return null;return round2(v.reduce((s,x)=>s+x,0)/v.length);},[salesRows]);
+  const exportSales=()=>{
+    if(salesRows.length===0)return flash("No items in the sell rate calculator");
+    const header=["Item","Category","Rack","Code","Cost","Extra Expense","Net Rate","Markup %","Selling Price","Profit / pc"];
+    const body=salesView.map(r=>[r.name,r.cat,r.rack||"",r.code,round2(num(r.cost)),round2(num(r.extra)),round2(r.net),round2(num(r.pct)),round2(num(r.sell)),round2(r.profit)]);
+    const fname="amazza-sell-rates-"+todayISO();
+    if(window.XLSX){
+      const aoa=[["AMAZZA \u2014 Sell Rate Calculator"],["Generated "+dispDate(todayISO())+"   \u00B7   Items: "+salesRows.length],[],header,...body];
+      const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=[{wch:34},{wch:20},{wch:10},{wch:10},{wch:11},{wch:13},{wch:11},{wch:10},{wch:13},{wch:11}];
+      const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Sell Rates");XLSX.writeFile(wb,fname+".xlsx");flash("Sell rates exported");
+    }else{
+      const cell=v=>{v=String(v==null?"":v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+      const csv=[header,...body].map(row=>row.map(cell).join(",")).join("\n");
+      const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname+".csv";a.click();flash("Exported as CSV");
+    }
+  };
+
+  // ----- history grouped by month -----
+  const monthGroups=useMemo(()=>{
+    const g={};
+    purchases.forEach(p=>{const key=(p.date||"").slice(0,7)||"unknown";(g[key]=g[key]||[]).push(p);});
+    return Object.keys(g).sort((a,b)=>b.localeCompare(a)).map(k=>{
+      const items=g[k].slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      const total=items.reduce((s,p)=>s+(Number(p.total)||0),0);
+      const pc=items.reduce((s,p)=>s+(p.items||[]).reduce((x,i)=>x+(Number(i.qty)||0),0),0);
+      return{key:k,label:monthLabel(k),items,total,count:items.length,pc};
+    });
+  },[purchases]);
+  const isOpen=(key,gi)=>key in openMonths?openMonths[key]:gi===0;
+  const toggleMonth=(key,gi)=>setOpenMonths(o=>({...o,[key]:!(key in o?o[key]:gi===0)}));
+  const expandAll=()=>{const o={};monthGroups.forEach(g=>o[g.key]=true);setOpenMonths(o);};
+  const collapseAll=()=>{const o={};monthGroups.forEach(g=>o[g.key]=false);setOpenMonths(o);};
+
+  const exportReport=()=>{
+    if(repRows.length===0){flash("No report data to export");return;}
+    const r2=n=>Math.round((Number(n)||0)*100)/100;
+    const header=["Item","Category","Rack","Code","Qty Purchased","Avg Cost","Last Rate","Total Spend","Purchases","Lowest Rate","Highest Rate"];
+    const body=repRows.map(r=>[r.name,r.cat,r.rack||"",r.code,r.qty,r2(r.avg),r2(r.lastRate),r2(r.val),r.count,r2(r.min),r2(r.max)]);
+    const fname="amazza-cost-report-"+todayISO();
+    if(window.XLSX){
+      const aoa=[["AMAZZA \u2014 Average Cost Report"],["Generated "+dispDate(todayISO())+"   \u00B7   Items: "+repRows.length+"   \u00B7   Total spend: "+r2(grandSpend)],[],header,...body];
+      const ws=XLSX.utils.aoa_to_sheet(aoa);
+      ws["!cols"]=[{wch:34},{wch:20},{wch:10},{wch:10},{wch:13},{wch:11},{wch:11},{wch:13},{wch:11},{wch:11},{wch:11}];
+      const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Cost Report");
+      XLSX.writeFile(wb,fname+".xlsx");flash("Excel file exported");
+    }else{
+      const cell=v=>{v=String(v==null?"":v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+      const csv=[header,...body].map(row=>row.map(cell).join(",")).join("\n");
+      const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+      const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname+".csv";a.click();flash("Exported as CSV (opens in Excel)");
+    }
+  };
+
+  const navBtn=(id,label)=>(<button onClick={()=>setView(id)} style={{background:view===id?K.ag:"transparent",border:"1px solid "+(view===id?K.ac:"transparent"),color:view===id?K.ac:K.tm,borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>{label}</button>);
+
+  return(<div style={{minHeight:"100vh",background:K.bg,color:K.tx,fontFamily:"'Montserrat',sans-serif",paddingBottom:30}}>
+    {confirm&&<Confirm K={K} msg={confirm.msg} onYes={confirm.action} onNo={()=>setConfirm(null)}/>}
+    {detail&&<ItemDetail K={K} detail={detail} purchases={purchases} onClose={()=>setDetail(null)}/>}
+    <Toast K={K} msg={toast}/>
+
+    {/* HEADER */}
+    <div style={{position:"sticky",top:0,zIndex:50,background:K.sf,borderBottom:"1px solid "+K.bd,padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <span className="serif" style={{fontSize:24,fontWeight:700,letterSpacing:"0.04em",color:K.ac}}>AMAZZA</span>
+        <span style={{width:1,height:20,background:K.bd}}/>
+        <div><div style={{fontSize:13,fontWeight:600,color:K.tm}}>Purchase Tracker</div>
+        <div style={{fontSize:10,color:K.td}}>{totalP} catalogue items · {purchases.length} purchases</div></div>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {navBtn("entry","Entry")}{navBtn("report","Report")}{navBtn("sales","Sales")}{navBtn("history","History")}
+        <button onClick={toggleTheme} title="Theme" style={{width:38,height:38,borderRadius:10,border:"1px solid "+K.bd,background:K.cd,color:K.tx,cursor:"pointer",fontSize:16}}>{theme==="dark"?"\u263E":"\u2600"}</button>
+        <button onClick={()=>setShowBackup(true)} title="Backup" style={{width:38,height:38,borderRadius:10,border:"1px solid "+K.bd,background:K.cd,color:K.tx,cursor:"pointer",fontSize:18}}>{"\u22EF"}</button>
+      </div>
+    </div>
+
+    <div style={{maxWidth:1200,margin:"0 auto",padding:"18px 16px"}}>
+
+    {/* ================= ENTRY ================= */}
+    {view==="entry"&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <h2 className="serif" style={{fontSize:24,fontWeight:600}}>{editingId?"Edit Purchase":"New Purchase"}</h2>
+        {editingId&&<Btn K={K} variant="ghost" onClick={resetWorking}>{"\u002B"} Start fresh</Btn>}
+      </div>
+      <div className="row-fields" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          <label style={{fontSize:10,fontWeight:600,color:K.tm,letterSpacing:"0.1em",textTransform:"uppercase"}}>Date</label>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setPDate(shiftISO(pDate,-1))} title="Previous day" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,cursor:"pointer",padding:"0 11px",fontSize:13,fontFamily:"inherit"}}>{"\u25C0"}</button>
+            <input type="date" value={pDate} onChange={e=>setPDate(e.target.value)} onClick={e=>{try{e.target.showPicker&&e.target.showPicker();}catch(_){}}}
+              style={{flex:1,minWidth:0,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"10px 12px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",colorScheme:theme,cursor:"pointer"}}
+              onFocus={e=>e.target.style.borderColor=K.ac} onBlur={e=>e.target.style.borderColor=K.bd}/>
+            <button onClick={()=>setPDate(shiftISO(pDate,1))} title="Next day" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,cursor:"pointer",padding:"0 11px",fontSize:13,fontFamily:"inherit"}}>{"\u25B6"}</button>
+          </div>
+          <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <button onClick={()=>setPDate(todayISO())} style={{background:"none",border:"none",color:K.ac,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",padding:0}}>Today</button>
+            <button onClick={()=>setPDate(shiftISO(todayISO(),-1))} style={{background:"none",border:"none",color:K.tm,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",padding:0}}>Yesterday</button>
+            <span style={{fontSize:11,color:K.td,marginLeft:"auto"}}>{dispDate(pDate)}</span>
+          </div>
+        </div>
+        <Field K={K} label="Vendor / Supplier" value={pVendor} onChange={setPVendor} placeholder="e.g. Morbi Traders"/>
+        <Field K={K} label="Bill / Invoice No" value={pBillNo} onChange={setPBillNo} placeholder="optional"/>
+      </div>
+
+      <div className="main-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
+        {/* LEFT — catalogue browser */}
+        <div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,padding:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:K.tm}}>Catalogue</span>
+            <Btn K={K} variant="ghost" onClick={()=>setShowMgr(true)} style={{padding:"6px 12px",fontSize:12}}>Manage</Btn>
+          </div>
+          <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder={"\uD83D\uDD0D  Search all "+totalP+" items..."} style={{width:"100%",boxSizing:"border-box",background:K.ag,border:"1.5px solid "+K.ac+"55",borderRadius:10,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:10}}/>
+          {!gSearch.trim()&&(<div style={{display:"flex",gap:8,marginBottom:10}}>
+            <select value={selCat} onChange={e=>setSelCat(e.target.value)} style={{flex:1,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}>
+              {Object.keys(catalog).map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="filter..." style={{width:120,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}/>
+          </div>)}
+          <div className="prod-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,maxHeight:"56vh",overflowY:"auto",paddingRight:2}}>
+            {filtered.map(p=>{const inCart=lineQty[p.id]||0;const last=stats[p.id];return(
+              <button key={p.id} onClick={()=>addLine(p)} style={{textAlign:"left",background:inCart?K.ag:K.bg,border:"1px solid "+(inCart?K.ac:K.bd),borderRadius:10,padding:"9px 10px",cursor:"pointer",position:"relative",fontFamily:"inherit",color:K.tx,transition:"border-color .15s"}}>
+                {inCart>0&&<span style={{position:"absolute",top:6,right:6,background:K.ac,color:"#111",fontSize:10,fontWeight:800,borderRadius:20,minWidth:18,height:18,display:"grid",placeItems:"center",padding:"0 5px"}}>{inCart}</span>}
+                <div style={{fontSize:12,fontWeight:600,lineHeight:1.25,paddingRight:18}}>{p.name}</div>
+                <div style={{fontSize:9.5,color:K.td,marginTop:4}}>{p.id}{p.rack?" · "+p.rack:""}{gSearch.trim()?" · "+p._cat:""}</div>
+                <div style={{fontSize:10,color:K.tm,marginTop:3}}>{last?"last "+fmt(last.lastRate):<span style={{color:K.td}}>sell {fmt(p.price)}</span>}</div>
+              </button>);})}
+            {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:K.tm,padding:24,fontSize:13}}>No items found.</div>}
+          </div>
+        </div>
+
+        {/* RIGHT — current purchase */}
+        <div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,padding:14,position:"sticky",top:78}}>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:K.tm,marginBottom:10}}>This Purchase {lines.length>0&&"· "+lines.length+" items"}</div>
+          <div style={{maxHeight:"44vh",overflowY:"auto",marginBottom:10}}>
+            {lines.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"34px 10px",fontSize:13}}><div style={{fontSize:34,opacity:.4,marginBottom:6}}>{"\uD83D\uDED2"}</div>Tap items on the left to add them here.</div>):
+            lines.map((l,idx)=>{const last=stats[l.code];return(
+              <div key={idx} style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:10,padding:10,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
+                  <div style={{minWidth:0}}><div style={{fontSize:13,fontWeight:600}}>{l.name}</div>
+                    <div style={{fontSize:10,color:K.td,marginTop:1}}>{l.code}{l.rack?" · "+l.rack:""}{last?" · last "+fmt(last.lastRate):""}</div></div>
+                  <button onClick={()=>removeLine(idx)} style={{background:"none",border:"none",color:K.dn,fontSize:16,cursor:"pointer",lineHeight:1}}>{"\u2715"}</button></div>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",alignItems:"center",background:K.sf,borderRadius:8,border:"1px solid "+K.bd}}>
+                    <button onClick={()=>updateLine(idx,"qty",l.qty-1)} style={{background:"none",border:"none",color:K.tm,cursor:"pointer",padding:"5px 10px",fontSize:15,fontFamily:"inherit"}}>{"\u2212"}</button>
+                    <input type="text" inputMode="numeric" value={l.qty} onChange={e=>updateLine(idx,"qty",onlyInt(e.target.value))} onFocus={e=>e.target.select()} style={{width:38,textAlign:"center",background:"transparent",border:"none",color:K.tx,fontSize:13,fontWeight:600,fontFamily:"inherit",outline:"none"}}/>
+                    <button onClick={()=>updateLine(idx,"qty",l.qty+1)} style={{background:"none",border:"none",color:K.tm,cursor:"pointer",padding:"5px 10px",fontSize:15,fontFamily:"inherit"}}>{"\u002B"}</button></div>
+                  <span style={{color:K.td,fontSize:12}}>{"\u00D7"}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:4,background:K.sf,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}>
+                    <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
+                    <input type="text" inputMode="decimal" value={l.rate} onChange={e=>updateLine(idx,"rate",onlyDec(e.target.value))} onFocus={e=>e.target.select()} placeholder="rate" style={{width:64,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"7px 0"}}/></div>
+                  <span style={{marginLeft:"auto",fontWeight:700,fontSize:14,color:K.ac}}>{fmt(l.qty*(parseFloat(l.rate)||0))}</span></div>
+                <input value={l.desc} onChange={e=>updateLine(idx,"desc",e.target.value)} placeholder="+ description (optional)" style={{width:"100%",boxSizing:"border-box",background:K.sf,border:"1px solid "+K.bd,borderRadius:7,padding:"6px 9px",color:K.tm,fontSize:11,fontFamily:"inherit",outline:"none",fontStyle:"italic",marginTop:8}}/>
+              </div>);})}
+          </div>
+
+          {/* custom item */}
+          <details style={{marginBottom:10}}>
+            <summary style={{fontSize:11,color:K.tm,cursor:"pointer",userSelect:"none"}}>+ Add an item not in the catalogue</summary>
+            <div style={{display:"flex",gap:6,marginTop:8}}>
+              <input value={nName} onChange={e=>setNName(e.target.value)} placeholder="Item name" style={{flex:2,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+              <input value={nPrice} onChange={e=>setNPrice(e.target.value)} type="number" placeholder="Rate" style={{flex:1,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+              <Btn K={K} onClick={addCustomLine} style={{padding:"8px 12px"}}>Add</Btn></div>
+          </details>
+
+          <input value={pNote} onChange={e=>setPNote(e.target.value)} placeholder="Note for this purchase (optional)" style={{width:"100%",boxSizing:"border-box",background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"9px 12px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none",marginBottom:10}}/>
+
+          <div style={{background:K.cd,borderRadius:12,padding:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:K.tm,padding:"2px 0"}}><span>Total quantity</span><span style={{color:K.tx}}>{totalQty} pc</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0 2px",borderTop:"1px solid "+K.bd,marginTop:6}}>
+              <span className="serif" style={{fontSize:18,fontWeight:600}}>Purchase Total</span>
+              <span className="serif" style={{fontSize:24,fontWeight:700,color:K.ac}}>{fmt(subtotal)}</span></div>
+          </div>
+          <Btn K={K} onClick={savePurchase} disabled={lines.length===0} style={{width:"100%",marginTop:10,padding:"13px",fontSize:14}}>{editingId?"Update Purchase":"Save Purchase"}</Btn>
+          <Btn K={K} variant="ghost" onClick={()=>printPurchase({date:pDate,vendor:pVendor,billNo:pBillNo,note:pNote,items:lines})} disabled={lines.length===0} style={{width:"100%",marginTop:8,padding:"12px",fontSize:13}}>{"\u2B07"} Generate PDF / Print</Btn>
+        </div>
+      </div>
+    </div>)}
+
+    {/* ================= REPORT ================= */}
+    {view==="report"&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:4,flexWrap:"wrap"}}>
+        <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Average Cost Report</h2>
+        <Btn K={K} variant="ghost" onClick={exportReport} style={{padding:"9px 16px",fontSize:13}}>{"\u2B07"} Export Excel</Btn>
+      </div>
+      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Weighted average purchase cost per item, across every recorded purchase.</p>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+        {[["Items Purchased",Object.keys(stats).length],["Total Purchases",purchases.length],["Total Spend",fmt(grandSpend)]].map((s,i)=>(
+          <div key={i} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:14,padding:"14px 16px",position:"relative",overflow:"hidden"}}>
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:3,background:K.ac,opacity:.7}}/>
+            <div className="serif" style={{fontSize:26,fontWeight:700,color:K.ac,lineHeight:1}}>{s[1]}</div>
+            <div style={{fontSize:9.5,letterSpacing:".12em",textTransform:"uppercase",color:K.tm,marginTop:5}}>{s[0]}</div></div>))}</div>
+      <input value={repSearch} onChange={e=>setRepSearch(e.target.value)} placeholder={"\uD83D\uDD0D  Search report..."} style={{width:"100%",boxSizing:"border-box",background:K.sf,border:"1px solid "+K.bd,borderRadius:12,padding:"12px 15px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
+      <div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:14,overflow:"hidden",overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:560}}>
+          <thead><tr>{[["name","Item"],["qty","Qty"],["avg","Avg Cost"],["lastRate","Last"],["val","Spend"],["count","Buys"]].map(h=>(
+            <th key={h[0]} onClick={()=>setRepSort(s=>s.k===h[0]?{k:h[0],d:-s.d}:{k:h[0],d:1})} style={{background:K.cd,padding:"11px 12px",textAlign:h[0]==="name"?"left":"right",fontSize:10,letterSpacing:".08em",textTransform:"uppercase",color:K.tm,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{h[1]} {repSort.k===h[0]?(repSort.d===1?"\u25B2":"\u25BC"):""}</th>))}</tr></thead>
+          <tbody>
+            {repRows.map(r=>(<tr key={r.code} onClick={()=>setDetail(r)} style={{borderTop:"1px solid "+K.bd,cursor:"pointer"}}>
+              <td style={{padding:"11px 12px"}}><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:10,color:K.td,marginTop:2}}>{r.cat}{r.rack?" · "+r.rack:""}</div></td>
+              <td style={{padding:"11px 12px",textAlign:"right"}}>{r.qty}</td>
+              <td style={{padding:"11px 12px",textAlign:"right",fontWeight:700,color:K.ac}}>{fmt(r.avg)}</td>
+              <td style={{padding:"11px 12px",textAlign:"right",color:K.tm}}>{fmt(r.lastRate)}</td>
+              <td style={{padding:"11px 12px",textAlign:"right"}}>{fmt(r.val)}</td>
+              <td style={{padding:"11px 12px",textAlign:"right",color:K.tm}}>{r.count}</td></tr>))}
+            {repRows.length===0&&<tr><td colSpan={6} style={{padding:34,textAlign:"center",color:K.tm}}>No purchases recorded yet. Add one from the Entry tab.</td></tr>}
+          </tbody></table></div>
+      <p style={{fontSize:11,color:K.td,marginTop:10}}>Tap any row to see that item's full purchase history.</p>
+    </div>)}
+
+    {/* ================= SELL RATE CALCULATOR ================= */}
+    {view==="sales"&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:4,flexWrap:"wrap"}}>
+        <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Sell Rate Calculator</h2>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn K={K} variant="ghost" onClick={()=>setShowMgr(true)} style={{padding:"9px 14px",fontSize:13}}>Manage items</Btn>
+          <Btn K={K} variant="ghost" onClick={exportSales} style={{padding:"9px 14px",fontSize:13}}>{"\u2B07"} Export Excel</Btn>
+        </div>
+      </div>
+      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Add items, set the cost and any extra expense, then type a markup % <em>or</em> a selling price — each fills the other automatically. Cost is pre-filled from your weighted average purchase cost when available.</p>
+
+      {/* toolbar */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+        <input value={salesSearch} onChange={e=>setSalesSearch(e.target.value)} placeholder={"\uD83D\uDD0D  Search items..."} style={{flex:"1 1 200px",minWidth:160,boxSizing:"border-box",background:K.sf,border:"1px solid "+K.bd,borderRadius:12,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:10,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Sort</span>
+          <select value={salesSort.k} onChange={e=>setSalesSort(s=>({k:e.target.value,d:s.d}))} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}>
+            <option value="name">Name</option><option value="pct">Markup %</option><option value="sell">Selling price</option><option value="net">Net rate</option><option value="cost">Cost</option><option value="profit">Profit / pc</option>
+          </select>
+          <button onClick={()=>setSalesSort(s=>({k:s.k,d:-s.d}))} title="Toggle ascending / descending" style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,cursor:"pointer",padding:"9px 12px",fontSize:13,fontFamily:"inherit"}}>{salesSort.d===1?"\u25B2":"\u25BC"}</button>
+        </div>
+        <Btn K={K} onClick={()=>setSalesPickerOpen(o=>!o)} style={{padding:"9px 14px",fontSize:13}}>{salesPickerOpen?"\u2715 Close":"\u002B Add items"}</Btn>
+        {salesRows.length>0&&<Btn K={K} variant="danger" onClick={clearSales} style={{padding:"9px 14px",fontSize:13}}>Clear</Btn>}
+      </div>
+
+      {/* item picker */}
+      {salesPickerOpen&&(<div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,padding:14,marginBottom:14}}>
+        <input value={sGlobal} onChange={e=>setSGlobal(e.target.value)} placeholder={"\uD83D\uDD0D  Search all "+totalP+" items..."} style={{width:"100%",boxSizing:"border-box",background:K.ag,border:"1.5px solid "+K.ac+"55",borderRadius:10,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:10}}/>
+        {!sGlobal.trim()&&(<div style={{display:"flex",gap:8,marginBottom:10}}>
+          <select value={sCat} onChange={e=>setSCat(e.target.value)} style={{flex:1,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}>
+            {Object.keys(catalog).map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
+          <input value={sFilter} onChange={e=>setSFilter(e.target.value)} placeholder="filter..." style={{width:120,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}/>
+        </div>)}
+        <div className="prod-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,maxHeight:"40vh",overflowY:"auto",paddingRight:2}}>
+          {salesPickRows.map(p=>{const added=inSales[p.id];const avg=stats[p.id]?stats[p.id].avg:0;return(
+            <button key={p.id} onClick={()=>addSalesItem(p)} style={{textAlign:"left",background:added?K.ag:K.bg,border:"1px solid "+(added?K.ac:K.bd),borderRadius:10,padding:"9px 10px",cursor:"pointer",position:"relative",fontFamily:"inherit",color:K.tx}}>
+              {added&&<span style={{position:"absolute",top:6,right:7,color:K.ac,fontSize:12,fontWeight:800}}>{"\u2713"}</span>}
+              <div style={{fontSize:12,fontWeight:600,lineHeight:1.25,paddingRight:16}}>{p.name}</div>
+              <div style={{fontSize:9.5,color:K.td,marginTop:4}}>{p.id}{p.rack?" · "+p.rack:""}{sGlobal.trim()?" · "+p._cat:""}</div>
+              <div style={{fontSize:10,color:K.tm,marginTop:3}}>{avg>0?"avg cost "+fmt(avg):<span style={{color:K.td}}>sell {fmt(p.price)}</span>}</div>
+            </button>);})}
+          {salesPickRows.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:K.tm,padding:24,fontSize:13}}>No items found.</div>}
+        </div>
+        <div style={{display:"flex",gap:6,marginTop:10}}>
+          <input value={scName} onChange={e=>setScName(e.target.value)} placeholder="Custom item not in catalogue" style={{flex:2,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+          <input value={scCost} onChange={e=>setScCost(onlyDec(e.target.value))} inputMode="decimal" placeholder="Cost ₹" style={{width:84,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+          <Btn K={K} onClick={addSalesCustom} style={{padding:"8px 12px"}}>Add</Btn></div>
+      </div>)}
+
+      {salesRows.length>0&&<div style={{fontSize:11,color:K.td,marginBottom:10}}>{salesView.length} item{salesView.length!==1?"s":""} shown{salesAvgMarkup!=null?" · avg markup "+salesAvgMarkup+"%":""}</div>}
+
+      {/* worksheet */}
+      {salesRows.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"46px 16px",fontSize:13,background:K.sf,border:"1px dashed "+K.bd,borderRadius:16}}>
+        <div style={{fontSize:34,opacity:.4,marginBottom:8}}>{"\uD83C\uDFF7\uFE0F"}</div>
+        No items yet. Tap <strong>{"\u002B"} Add items</strong> to pull products from your catalogue and start pricing.</div>):
+      (<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {salesView.map(r=>{const net=r.net;const profit=num(r.sell)-net;const avg=stats[r.code]?stats[r.code].avg:0;return(
+          <div key={r.code} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:14,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
+              <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700}}>{r.name}</div>
+                <div style={{fontSize:10,color:K.td,marginTop:2}}>{r.cat}{r.rack?" · "+r.rack:""} · {r.code}</div></div>
+              <button onClick={()=>removeSalesRow(r._i)} style={{background:"none",border:"none",color:K.dn,fontSize:16,cursor:"pointer",lineHeight:1}}>{"\u2715"}</button>
+            </div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:96}}>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Cost</label>
+                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}>
+                  <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
+                  <input inputMode="decimal" value={r.cost} onChange={e=>changeCost(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:60,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
+                {avg>0?<button onClick={()=>refillAvg(r._i)} style={{background:"none",border:"none",color:K.ac,cursor:"pointer",fontSize:9.5,fontWeight:700,fontFamily:"inherit",padding:0,textAlign:"left"}}>use avg {fmt(avg)}</button>:<span style={{fontSize:9,color:K.td}}>no purchase data</span>}
+              </div>
+              <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"\u002B"}</span>
+              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:88}}>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Extra exp.</label>
+                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}>
+                  <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
+                  <input inputMode="decimal" value={r.extra} onChange={e=>changeExtra(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:52,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
+              </div>
+              <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"\u003D"}</span>
+              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:78}}>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Net rate</label>
+                <div style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:8,padding:"8px 10px",fontSize:13,fontWeight:700,color:K.tx,textAlign:"right"}}>{fmt(net)}</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:84}}>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.ac}}>Markup %</label>
+                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.ac+"66",borderRadius:8,padding:"0 8px"}}>
+                  <input inputMode="decimal" value={r.pct} onChange={e=>changePct(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:46,background:"transparent",border:"none",color:K.tx,fontSize:13,fontWeight:600,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/>
+                  <span style={{color:K.tm,fontSize:12}}>%</span></div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:98}}>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.ac}}>Selling price</label>
+                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.ac+"66",borderRadius:8,padding:"0 8px"}}>
+                  <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
+                  <input inputMode="decimal" value={r.sell} onChange={e=>changeSell(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:66,background:"transparent",border:"none",color:K.ac,fontSize:14,fontWeight:700,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:78,marginLeft:"auto"}}>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Profit / pc</label>
+                <div style={{fontSize:13,fontWeight:700,textAlign:"right",paddingTop:8,color:profit>0?K.su:profit<0?K.dn:K.tm}}>{fmt(profit)}</div>
+              </div>
+            </div>
+          </div>);})}
+      </div>)}
+    </div>)}
+
+    {/* ================= HISTORY ================= */}
+    {view==="history"&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+        <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Purchase History</h2>
+        {monthGroups.length>0&&<div style={{display:"flex",gap:8}}>
+          <Btn K={K} variant="ghost" onClick={expandAll} style={{padding:"7px 13px",fontSize:12}}>Expand all</Btn>
+          <Btn K={K} variant="ghost" onClick={collapseAll} style={{padding:"7px 13px",fontSize:12}}>Collapse all</Btn>
+        </div>}
+      </div>
+      {purchases.length===0?<div style={{textAlign:"center",color:K.tm,padding:40,fontSize:13}}>No purchases yet.</div>:
+      monthGroups.map((g,gi)=>{const open=isOpen(g.key,gi);return(
+        <div key={g.key} style={{marginBottom:12}}>
+          <button onClick={()=>toggleMonth(g.key,gi)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,background:K.cd,border:"1px solid "+(open?K.ac:K.bd),borderRadius:12,padding:"13px 16px",cursor:"pointer",fontFamily:"inherit",color:K.tx,textAlign:"left"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flexWrap:"wrap"}}>
+              <span style={{color:K.ac,fontSize:12,display:"inline-block",transition:"transform .2s",transform:open?"rotate(90deg)":"rotate(0deg)"}}>{"\u25B6"}</span>
+              <span className="serif" style={{fontSize:18,fontWeight:700}}>{g.label}</span>
+              <span style={{fontSize:11,color:K.tm}}>{g.count} purchase{g.count!==1?"s":""} · {g.pc} pc</span>
+            </div>
+            <span className="serif" style={{fontSize:18,fontWeight:700,color:K.ac,whiteSpace:"nowrap"}}>{fmt(g.total)}</span>
+          </button>
+          {open&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:10}}>
+            {g.items.map(p=>(<div key={p.id} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:14,padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                <div><div style={{fontSize:14,fontWeight:700}}>{p.vendor||"Unnamed vendor"}{p.billNo?<span style={{color:K.tm,fontWeight:400}}>{"  ·  #"+p.billNo}</span>:null}</div>
+                  <div style={{fontSize:11,color:K.tm,marginTop:2}}>{dispDate(p.date)} · {(p.items||[]).length} items · {(p.items||[]).reduce((s,i)=>s+(Number(i.qty)||0),0)} pc</div>
+                  {p.note?<div style={{fontSize:11,color:K.td,fontStyle:"italic",marginTop:3}}>{p.note}</div>:null}</div>
+                <div style={{textAlign:"right"}}><div className="serif" style={{fontSize:22,fontWeight:700,color:K.ac}}>{fmt(p.total)}</div></div></div>
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <Btn K={K} variant="ghost" onClick={()=>printPurchase(p)} style={{padding:"7px 14px",fontSize:12}}>{"\u2B07"} PDF</Btn>
+                <Btn K={K} variant="ghost" onClick={()=>loadPurchase(p)} style={{padding:"7px 14px",fontSize:12}}>Edit</Btn>
+                <Btn K={K} variant="danger" onClick={()=>deletePurchase(p)} style={{padding:"7px 14px",fontSize:12}}>Delete</Btn></div>
+            </div>))}
+          </div>}
+        </div>);})}
+    </div>)}
+
+    </div>
+
+    {/* ====== CATALOGUE MANAGER ====== */}
+    {showMgr&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997,padding:16}} onClick={()=>{setShowMgr(false);setEditIdx(-1);}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,width:"100%",maxWidth:640,maxHeight:"88vh",overflowY:"auto",padding:20,animation:"slideUp .25s ease"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <h3 className="serif" style={{fontSize:22,fontWeight:600}}>Catalogue Manager</h3>
+          <button onClick={()=>{setShowMgr(false);setEditIdx(-1);}} style={{background:"none",border:"none",color:K.tm,fontSize:20,cursor:"pointer"}}>{"\u2715"}</button></div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="New category name" style={{flex:1,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"9px 11px",color:K.tx,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+          <Btn K={K} onClick={addCategory}>+ Category</Btn></div>
+        <select value={selCat} onChange={e=>{setSelCat(e.target.value);setEditIdx(-1);}} style={{width:"100%",background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"10px",outline:"none",marginBottom:6}}>
+          {Object.keys(catalog).map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
+        {catalog[selCat]&&catalog[selCat].length===0&&<Btn K={K} variant="danger" onClick={()=>removeCategory(selCat)} style={{marginBottom:10,fontSize:12,padding:"6px 12px"}}>Delete empty category</Btn>}
+
+        <div style={{display:"flex",gap:6,margin:"10px 0"}}>
+          <input value={nName} onChange={e=>setNName(e.target.value)} placeholder="Item name" style={{flex:2,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+          <input value={nCode} onChange={e=>setNCode(e.target.value)} placeholder="Rack" style={{width:64,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+          <input value={nPrice} onChange={e=>setNPrice(e.target.value)} type="number" placeholder="Sell ₹" style={{width:70,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+          <Btn K={K} onClick={addToCat} style={{padding:"8px 12px"}}>Add</Btn></div>
+
+        <div style={{maxHeight:"42vh",overflowY:"auto"}}>
+          {(catalog[selCat]||[]).map((p,idx)=>(<div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 4px",borderTop:"1px solid "+K.bd}}>
+            {editIdx===idx?(<React.Fragment>
+              <input value={editData.name} onChange={e=>setEditData({...editData,name:e.target.value})} style={{flex:2,background:K.bg,border:"1px solid "+K.ac,borderRadius:6,padding:"6px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+              <input value={editData.rack||""} onChange={e=>setEditData({...editData,rack:e.target.value})} style={{width:56,background:K.bg,border:"1px solid "+K.ac,borderRadius:6,padding:"6px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+              <input value={editData.price} onChange={e=>setEditData({...editData,price:e.target.value})} type="number" style={{width:62,background:K.bg,border:"1px solid "+K.ac,borderRadius:6,padding:"6px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+              <button onClick={saveEdit} style={{background:K.su,border:"none",color:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>{"\u2713"}</button>
+            </React.Fragment>):(<React.Fragment>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600}}>{p.name}</div><div style={{fontSize:10,color:K.td}}>{p.id}{p.rack?" · "+p.rack:""} · sell {fmt(p.price)}</div></div>
+              <select onChange={e=>{if(e.target.value){moveItem(selCat,idx,e.target.value);e.target.value="";}}} value="" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:6,color:K.tm,fontFamily:"inherit",fontSize:11,padding:"4px",outline:"none"}}>
+                <option value="">move...</option>{Object.keys(catalog).filter(c=>c!==selCat).map(c=><option key={c} value={c}>{c}</option>)}</select>
+              <button onClick={()=>startEdit(idx,p)} style={{background:"none",border:"none",color:K.tm,fontSize:14,cursor:"pointer"}}>{"\u270E"}</button>
+              <button onClick={()=>rmFromCat(selCat,idx)} style={{background:"none",border:"none",color:K.dn,fontSize:14,cursor:"pointer"}}>{"\u2715"}</button>
+            </React.Fragment>)}
+          </div>))}
+        </div>
+        <Btn K={K} variant="ghost" onClick={()=>{setShowMgr(false);setEditIdx(-1);}} style={{width:"100%",marginTop:12}}>Done</Btn>
+      </div></div>)}
+
+    {/* ====== BACKUP ====== */}
+    {showBackup&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997,padding:16}} onClick={()=>setShowBackup(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,width:"100%",maxWidth:380,padding:22,animation:"slideUp .25s ease"}}>
+        <h3 className="serif" style={{fontSize:22,fontWeight:600,marginBottom:4}}>Data & Backup</h3>
+        <p style={{fontSize:12,color:K.tm,marginBottom:16}}>Everything saves on this device. Export regularly so you never lose it.</p>
+        <Btn K={K} onClick={exportData} style={{width:"100%",marginBottom:8}}>{"\u2B07"} Export backup (.json)</Btn>
+        <Btn K={K} variant="ghost" onClick={()=>document.getElementById("imp").click()} style={{width:"100%",marginBottom:8}}>{"\u2B06"} Import backup</Btn>
+        <input id="imp" type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
+        <Btn K={K} variant="danger" onClick={wipeAll} style={{width:"100%",marginBottom:8}}>Erase all data</Btn>
+        <Btn K={K} variant="ghost" onClick={()=>setShowBackup(false)} style={{width:"100%"}}>Close</Btn>
+      </div></div>)}
+
+  </div>);
+}
+ReactDOM.render(React.createElement(App),document.getElementById("root"));
+</script>
+</body>
+</html>
