@@ -356,16 +356,18 @@ function App(){
     d[pfMonth]=m;saveProfit(d);
   };
   const pfBase=useMemo(()=>{
-    // union of items with purchase data + custom sales items with a cost
+    // union of items with purchase data + custom sales items; net rate (cost+extra) from Sales tab wins over raw avg
     const map={};
-    Object.values(stats).forEach(r=>{map[r.code]={code:r.code,name:r.name,rack:r.rack,cat:r.cat,avg:r.avg};});
-    salesRows.forEach(r=>{if(!map[r.code])map[r.code]={code:r.code,name:r.name,rack:r.rack||"",cat:catOverride[r.code]||r.cat||"Custom",avg:num(r.cost)};});
+    const netOf={};salesRows.forEach(r=>{const n=num(r.cost)+num(r.extra);if(n>0)netOf[r.code]=n;});
+    Object.values(stats).forEach(r=>{map[r.code]={code:r.code,name:r.name,rack:r.rack,cat:r.cat,avg:r.avg,net:netOf[r.code]||0};});
+    salesRows.forEach(r=>{if(!map[r.code])map[r.code]={code:r.code,name:r.name,rack:r.rack||"",cat:catOverride[r.code]||r.cat||"Custom",avg:num(r.cost),net:netOf[r.code]||0};});
+    Object.values(map).forEach(b=>{b.def=b.net>0?b.net:b.avg;b.src=b.net>0?"net":"avg";});
     return Object.values(map);
   },[stats,salesRows,catOverride]);
   const pfRows=useMemo(()=>{
     let rows=pfBase.map(b=>{
       const e=pfEntry(b.code);
-      const cost=(e.cost!=null&&e.cost!=="")?num(e.cost):b.avg;
+      const cost=(e.cost!=null&&e.cost!=="")?num(e.cost):b.def;
       const qty=num(e.qty);const sell=num(e.sell);
       const entered=(e.qty!=null&&e.qty!=="")||(e.sell!=null&&e.sell!=="");
       const ppc=sell-cost;
@@ -382,7 +384,7 @@ function App(){
     const m=profitData[pfMonth]||{};let profit=0,rev=0,cost=0,items=0,pcs=0;
     const baseMap={};pfBase.forEach(b=>baseMap[b.code]=b);
     Object.entries(m).forEach(([code,e])=>{
-      const b=baseMap[code];const c=(e.cost!=null&&e.cost!=="")?num(e.cost):(b?b.avg:0);
+      const b=baseMap[code];const c=(e.cost!=null&&e.cost!=="")?num(e.cost):(b?b.def:0);
       const q=num(e.qty),s=num(e.sell);
       if(q>0&&s>0){profit+=q*(s-c);rev+=q*s;cost+=q*c;items++;pcs+=q;}
     });
@@ -391,7 +393,7 @@ function App(){
   const exportProfit=()=>{
     const rows=pfRows.filter(r=>r.entered&&num(r.e.qty)>0&&num(r.e.sell)>0);
     if(rows.length===0)return flash("No sales entered for "+monthLabel(pfMonth));
-    const header=["Item","Category","Code","Qty Sold","Avg Sell \u20B9","Cost \u20B9","Profit / pc","Total Profit \u20B9","Profit %"];
+    const header=["Item","Category","Code","Qty Sold","Avg Sell \u20B9","Net Cost \u20B9","Profit / pc","Total Profit \u20B9","Profit %"];
     const body=rows.map(r=>[r.name,r.cat,r.code,num(r.e.qty),round2(num(r.e.sell)),round2(r.cost),round2(r.ppc),round2(r.totalProfit),round2(r.pfPct)]);
     const fname="amazza-monthly-profit-"+pfMonth;
     if(window.XLSX){
@@ -728,7 +730,7 @@ function App(){
         <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Monthly Profit</h2>
         <Btn K={K} variant="ghost" onClick={exportProfit} style={{padding:"9px 14px",fontSize:13}}>{"\u2B07"} Export Excel</Btn>
       </div>
-      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Pick a month, then enter <strong>Qty sold</strong> and the <strong>average selling price</strong> for any item. Cost is pulled from your weighted average purchase price (you can override it). Profit {"\u20B9"} and Profit % update instantly.</p>
+      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Pick a month, then enter <strong>Qty sold</strong> and the <strong>average selling price</strong> for any item. Cost comes from the <strong>Net rate</strong> in your Sell Rate Calculator (cost + extra expenses) — so this is your <strong>net profit</strong>. If an item isn't in the Sales tab, the weighted average purchase price is used instead. You can override it per month.</p>
 
       {/* month selector */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
@@ -782,11 +784,11 @@ function App(){
               </div>
               <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"\u2212"}</span>
               <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:96}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Cost ₹</label>
+                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Net cost ₹</label>
                 <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}>
                   <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
-                  <input inputMode="decimal" value={(r.e.cost!=null&&r.e.cost!=="")?r.e.cost:""} onChange={e=>setPf(r.code,"cost",e.target.value)} onFocus={e=>e.target.select()} placeholder={r.avg>0?numStr(r.avg):"0"} style={{width:60,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
-                <span style={{fontSize:9,color:K.td}}>{r.avg>0?"avg "+fmt(r.avg):"no purchase data"}</span>
+                  <input inputMode="decimal" value={(r.e.cost!=null&&r.e.cost!=="")?r.e.cost:""} onChange={e=>setPf(r.code,"cost",e.target.value)} onFocus={e=>e.target.select()} placeholder={r.def>0?numStr(r.def):"0"} style={{width:60,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
+                <span style={{fontSize:9,color:K.td}}>{r.net>0?"net rate "+fmt(r.net):r.avg>0?"purchase avg "+fmt(r.avg)+" (no net rate set)":"no cost data"}</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:96,marginLeft:"auto"}}>
                 <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Profit {"\u20B9"}</label>
