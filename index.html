@@ -25,6 +25,9 @@
     @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
     @media(max-width:820px){.main-grid{grid-template-columns:1fr!important}.prod-grid{grid-template-columns:1fr 1fr!important}.row-fields{grid-template-columns:1fr!important}.pf-cards{grid-template-columns:1fr 1fr!important}}
     @media(max-width:520px){.prod-grid{grid-template-columns:1fr!important}}
+    @media(max-width:820px){.topnav{width:100%;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.topnav::-webkit-scrollbar{display:none}.topnav button{flex-shrink:0}}
+    html,body{max-width:100%;overflow-x:hidden}
+    .rename-btn:hover span:first-child{border-bottom-color:currentColor}
   </style>
 </head>
 <body>
@@ -52,6 +55,81 @@ const MONTHS_FULL=["January","February","March","April","May","June","July","Aug
 const monthLabel=key=>{if(!key||key==="unknown")return "Undated";const a=key.split("-");return (MONTHS_FULL[(+a[1])-1]||"")+" "+a[0];};
 const monthISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");};
 const shiftMonth=(key,d)=>{const a=(key||monthISO()).split("-").map(Number);const dt=new Date(a[0],a[1]-1+d,1);return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");};
+const words=s=>String(s||"").toLowerCase().trim().split(/\s+/).filter(Boolean);
+const matches=(hay,ws)=>{hay=hay.toLowerCase();return ws.every(x=>hay.includes(x));};
+
+/* ===== storage (same keys as earlier versions, so existing data loads untouched) ===== */
+const KEYS={theme:"amazza-pt-theme",catalog:"amazza-pt-catalog-v1",purchases:"amazza-pt-purchases-v1",sales:"amazza-pt-sales-v1",profit:"amazza-pt-profit-v1",override:"amazza-pt-catoverride-v1"};
+const SNAPSHOT_KEY="amazza-pt-snapshot-before-v3";
+const MIGRATED_KEY="amazza-pt-v3-migrated";
+const readJSON=(k,fb)=>{try{const s=localStorage.getItem(k);return s?JSON.parse(s):fb;}catch(e){return fb;}};
+const writeJSON=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
+
+/* Old versions created "custom" items (codes CUSTOM-... from Entry, SX-... from Sales) that lived only
+   inside a purchase or a sell-rate row, never in the catalogue, so they could not be picked again.
+   This copies them INTO the catalogue under the same code. Nothing is removed or renamed. */
+function migrateCustomItems(catalog,purchases,sales,override){
+  const nc={};Object.keys(catalog||{}).forEach(c=>nc[c]=[...catalog[c]]);
+  const known=new Set();Object.values(nc).forEach(a=>a.forEach(p=>known.add(p.id)));
+  let added=0;
+  const add=(code,name,rack,cat,price)=>{
+    if(!code||known.has(code)||!/^(CUSTOM-|SX-)/.test(code))return;
+    known.add(code);cat=(cat&&String(cat).trim())||"Custom";
+    if(!nc[cat])nc[cat]=[];
+    nc[cat].push({id:code,name:name||code,price:Number(price)||0,rack:rack||""});added++;
+  };
+  (purchases||[]).forEach(p=>(p.items||[]).forEach(li=>add(li.code,li.name,li.rack,(override||{})[li.code]||li.cat)));
+  (sales||[]).forEach(r=>add(r.code,r.name,r.rack,(override||{})[r.code]||r.cat,r.sell));
+  return{catalog:nc,added};
+}
+
+function loadAll(){
+  // one-time safety copy of the raw saved data, taken before this version writes anything
+  try{
+    if(!localStorage.getItem(SNAPSHOT_KEY)){
+      const snap={takenAt:new Date().toISOString()};let any=false;
+      Object.entries(KEYS).forEach(([n,k])=>{const v=localStorage.getItem(k);if(v!=null){snap[n]=v;any=true;}});
+      if(any)localStorage.setItem(SNAPSHOT_KEY,JSON.stringify(snap));
+    }
+  }catch(e){}
+  let theme="dark";try{theme=localStorage.getItem(KEYS.theme)||"dark";}catch(e){}
+  let catalog=readJSON(KEYS.catalog,null)||DEFAULT_CATALOG;
+  const purchases=readJSON(KEYS.purchases,[])||[];
+  const sales=readJSON(KEYS.sales,[])||[];
+  const profit=readJSON(KEYS.profit,{})||{};
+  const override=readJSON(KEYS.override,{})||{};
+  let migrated=0;
+  try{
+    if(!localStorage.getItem(MIGRATED_KEY)){
+      const m=migrateCustomItems(catalog,purchases,sales,override);
+      if(m.added>0){catalog=m.catalog;writeJSON(KEYS.catalog,catalog);}
+      migrated=m.added;localStorage.setItem(MIGRATED_KEY,new Date().toISOString());
+    }
+  }catch(e){}
+  return{theme,catalog,purchases,sales,profit,override,migrated};
+}
+
+/* ===== auto item code: continues the category's own series (NV-018 -> NV-019) ===== */
+function nextCode(catalog,cat){
+  const all=new Set();const prefixCat={};
+  Object.entries(catalog).forEach(([c,arr])=>arr.forEach(p=>{all.add(p.id);const m=/^([A-Z]{1,5})-(\d+)$/.exec(p.id);if(m&&!prefixCat[m[1]])prefixCat[m[1]]=c;}));
+  const cnt={};let width=3;
+  (catalog[cat]||[]).forEach(p=>{const m=/^([A-Z]{1,5})-(\d+)$/.exec(p.id);if(m){cnt[m[1]]=(cnt[m[1]]||0)+1;width=Math.max(width,m[2].length);}});
+  let prefix=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+  if(!prefix){
+    const w=String(cat).toUpperCase().replace(/[^A-Z ]/g," ").split(/\s+/).filter(x=>x&&x!=="AND"&&x!=="SERIES");
+    const cands=[];
+    if(w.length>=2)cands.push(w[0][0]+w[1][0]);
+    if(w[0])cands.push(w[0].slice(0,2),w[0].slice(0,3));
+    if(w.length>=3)cands.push(w[0][0]+w[1][0]+w[2][0]);
+    cands.push("IT");
+    prefix=cands.find(c=>c.length>=2&&!prefixCat[c]);
+    if(!prefix){let i=1;while(prefixCat["X"+i])i++;prefix="X"+i;}
+  }
+  let n=0;all.forEach(id=>{const m=/^([A-Z]{1,5})-(\d+)$/.exec(id);if(m&&m[1]===prefix)n=Math.max(n,+m[2]);});
+  let id;do{n++;id=prefix+"-"+String(n).padStart(width,"0");}while(all.has(id));
+  return id;
+}
 
 /* ===== theme palettes ===== */
 function palette(t){
@@ -110,13 +188,179 @@ function ItemDetail({K,detail,purchases,onClose}){
       <Btn K={K} variant="ghost" onClick={onClose} style={{width:"100%",marginTop:10}}>Close</Btn></div></div>);
 }
 
+/* ===== ONE simple "New item" form, used from Entry, Sell Rates and the Items manager ===== */
+function NewItemSheet({K,catalog,mode,initial,onCreate,onPickExisting,onClose}){
+  const cats=Object.keys(catalog);
+  const startCat=initial&&initial.cat&&catalog[initial.cat]?initial.cat:(cats[0]||"");
+  const[name,setName]=useState(String((initial&&initial.name)||"").toUpperCase());
+  const[cat,setCat]=useState(startCat);
+  const[makingCat,setMakingCat]=useState(cats.length===0);
+  const[newCat,setNewCat]=useState("");
+  const[rate,setRate]=useState("");const[sell,setSell]=useState("");const[rack,setRack]=useState("");const[qty,setQty]=useState("1");
+  const[err,setErr]=useState("");const[dupOk,setDupOk]=useState(false);const[done,setDone]=useState([]);
+  const nameRef=React.useRef(null);
+  useEffect(()=>{setTimeout(()=>{try{nameRef.current&&nameRef.current.focus();}catch(e){}},80);},[]);
+  const finalCat=makingCat?newCat.trim().toUpperCase():cat;
+  const code=finalCat?nextCode(catalog,finalCat):"";
+  const similar=useMemo(()=>{
+    const n=name.trim();if(n.length<3)return[];const ws=words(n);const out=[];
+    Object.entries(catalog).forEach(([c,arr])=>arr.forEach(p=>{if(matches(p.name,ws))out.push({...p,_cat:c});}));
+    out.sort((a,b)=>(a.name.toUpperCase()===n.toUpperCase()?-1:0)-(b.name.toUpperCase()===n.toUpperCase()?-1:0));
+    return out.slice(0,5);
+  },[name,catalog]);
+  const exact=similar.find(s=>s.name.toUpperCase()===name.trim().toUpperCase());
+  const markup=num(rate)>0&&num(sell)>0?round2((num(sell)/num(rate)-1)*100):null;
+  const submit=keepOpen=>{
+    const n=name.trim().toUpperCase();
+    if(!n){setErr("Type the item name");return;}
+    if(!finalCat){setErr(makingCat?"Type the new category name":"Choose a category");return;}
+    if(exact&&!dupOk){setErr("\""+exact.name+"\" already exists in "+exact._cat+". Tap it above to use it, or press Add again to create it anyway.");setDupOk(true);return;}
+    if(mode==="entry"&&!(Number(qty)>0)){setErr("Quantity must be more than 0");return;}
+    onCreate({name:n,cat:finalCat,rack:rack.trim().toUpperCase(),rate,sell,qty:Number(qty)||1});
+    if(keepOpen){
+      setDone(d=>[n,...d].slice(0,4));
+      setName("");setRate("");setSell("");setRack("");setQty("1");setErr("");setDupOk(false);
+      if(makingCat){setCat(finalCat);setMakingCat(false);setNewCat("");}
+      setTimeout(()=>{try{nameRef.current&&nameRef.current.focus();}catch(e){}},30);
+    }else onClose();
+  };
+  const onKey=e=>{if(e.key==="Enter"){e.preventDefault();submit(false);}};
+  const lab={fontSize:10,fontWeight:700,color:K.tm,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5,display:"block"};
+  const box={width:"100%",boxSizing:"border-box",background:K.bg,border:"1px solid "+K.bd,borderRadius:10,padding:"12px 13px",color:K.tx,fontSize:15,fontFamily:"inherit",outline:"none"};
+  const money=(val,set,ph,accent)=>(<div style={{display:"flex",alignItems:"center",gap:4,background:K.bg,border:"1px solid "+(accent?K.ac+"77":K.bd),borderRadius:10,padding:"0 10px",minWidth:0}}>
+    <span style={{color:K.tm,fontSize:14}}>{"₹"}</span>
+    <input inputMode="decimal" value={val} onChange={e=>set(onlyDec(e.target.value))} onKeyDown={onKey} placeholder={ph} style={{flex:1,minWidth:0,background:"transparent",border:"none",color:K.tx,fontSize:15,fontFamily:"inherit",outline:"none",padding:"12px 0"}}/></div>);
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.62)",backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9998}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} className="sheet" style={{background:K.sf,borderTop:"1px solid "+K.ac,borderRadius:"22px 22px 0 0",width:"100%",maxWidth:560,maxHeight:"94vh",overflowY:"auto",padding:"20px 18px calc(22px + env(safe-area-inset-bottom))",animation:"slideUp .25s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <h3 className="serif" style={{fontSize:24,fontWeight:700}}>New Item</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",color:K.tm,fontSize:20,cursor:"pointer"}}>{"✕"}</button></div>
+      <p style={{fontSize:12,color:K.tm,marginBottom:16,lineHeight:1.5}}>
+        {mode==="entry"?"Saved to your catalogue, added to Sell Rates, and put on this purchase.":"Saved to your catalogue and added to Sell Rates automatically."}</p>
+
+      <label style={lab}>Item name</label>
+      <input ref={nameRef} value={name} onChange={e=>{setName(e.target.value.toUpperCase());setErr("");setDupOk(false);}} onKeyDown={onKey} placeholder="e.g. NOVA WALL MIXER" style={{...box,fontWeight:600}}/>
+      {similar.length>0&&(<div style={{marginTop:8,background:K.cd,border:"1px solid "+K.bd,borderRadius:10,padding:"8px 10px"}}>
+        <div style={{fontSize:10,color:K.tm,marginBottom:6,letterSpacing:".06em",textTransform:"uppercase",fontWeight:700}}>Already in catalogue? Tap to use it</div>
+        {similar.map(s=>(<button key={s.id} onClick={()=>{onPickExisting(s);onClose();}} style={{display:"flex",width:"100%",justifyContent:"space-between",gap:8,background:"none",border:"none",borderTop:"1px solid "+K.bd,padding:"7px 2px",color:K.tx,fontFamily:"inherit",fontSize:12.5,cursor:"pointer",textAlign:"left"}}>
+          <span style={{fontWeight:600}}>{s.name}</span><span style={{color:K.td,fontSize:11,whiteSpace:"nowrap"}}>{s._cat} · {s.id}</span></button>))}
+      </div>)}
+
+      <div style={{marginTop:14}}>
+        <label style={lab}>Category</label>
+        {!makingCat?(<select value={cat} onChange={e=>{if(e.target.value==="__new__"){setMakingCat(true);}else setCat(e.target.value);setErr("");}} style={{...box,cursor:"pointer"}}>
+          {cats.map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}
+          <option value="__new__">{"+"} New category...</option></select>):
+        (<div style={{display:"flex",gap:8}}>
+          <input value={newCat} onChange={e=>{setNewCat(e.target.value.toUpperCase());setErr("");}} onKeyDown={onKey} placeholder="New category name" style={box}/>
+          {cats.length>0&&<Btn K={K} variant="ghost" onClick={()=>{setMakingCat(false);setNewCat("");}} style={{whiteSpace:"nowrap"}}>Pick existing</Btn>}</div>)}
+        {code&&<div style={{fontSize:11,color:K.td,marginTop:6}}>Item code will be <strong style={{color:K.ac}}>{code}</strong> (automatic)</div>}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:mode==="entry"?"64px minmax(0,1fr) minmax(0,1fr)":"minmax(0,1fr) minmax(0,1fr)",gap:8,marginTop:14}}>
+        {mode==="entry"&&<div style={{minWidth:0}}><label style={lab}>Qty</label>
+          <input inputMode="numeric" value={qty} onChange={e=>setQty(onlyInt(e.target.value))} onKeyDown={onKey} onFocus={e=>e.target.select()} style={{...box,textAlign:"center",padding:"12px 4px"}}/></div>}
+        <div style={{minWidth:0}}><label style={lab}>{mode==="entry"?"Rate":"Purchase cost"}</label>{money(rate,setRate,mode==="entry"?"rate":"optional")}</div>
+        <div style={{minWidth:0}}><label style={{...lab,color:K.ac}}>Sell price</label>{money(sell,setSell,"optional",true)}</div>
+      </div>
+      {markup!=null&&<div style={{fontSize:12,color:markup>=0?K.su:K.dn,marginTop:6,fontWeight:600}}>Markup {markup}% · profit {fmt(num(sell)-num(rate))} / pc</div>}
+
+      <div style={{marginTop:14}}>
+        <label style={lab}>Rack <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:K.td}}>(optional)</span></label>
+        <input value={rack} onChange={e=>setRack(e.target.value)} onKeyDown={onKey} placeholder="e.g. C12" style={box}/></div>
+
+      {err&&<div style={{marginTop:12,background:K.dn+"18",border:"1px solid "+K.dn+"66",color:K.dn,borderRadius:10,padding:"10px 12px",fontSize:12.5,lineHeight:1.45}}>{err}</div>}
+      {done.length>0&&<div style={{marginTop:12,fontSize:12,color:K.su}}>{"✓"} Added: {done.join(", ")}</div>}
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:16}}>
+        <Btn K={K} variant="ghost" onClick={()=>submit(true)} style={{padding:"13px 10px"}}>Add + another</Btn>
+        <Btn K={K} onClick={()=>submit(false)} style={{padding:"13px 10px",fontSize:14}}>{exact&&dupOk?"Add anyway":"Add item"}</Btn></div>
+    </div></div>);
+}
+
+/* ===== one sell-rate row (memoised: typing in one row doesn't redraw 400 others) ===== */
+const SalesRow=React.memo(function SalesRow({K,r,avg,inCatalog,moveTargets,onField,onUseAvg,onMove,onClear,onRemove,onRename}){
+  const[editing,setEditing]=useState(false);const[draft,setDraft]=useState("");
+  const startName=()=>{setDraft(r.name);setEditing(true);};
+  const saveName=()=>{const n=draft.trim().toUpperCase();setEditing(false);if(n&&n!==r.name)onRename(r.code,n);};
+  const cancelName=()=>setEditing(false);
+  const net=num(r.cost)+num(r.extra);const profit=num(r.sell)-net;const priced=num(r.sell)>0;
+  const lab={fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase"};
+  const inp=(f,w,extra)=>(<input inputMode="decimal" value={r[f]} onChange={e=>onField(r.code,f,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:w,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0",...extra}}/>);
+  return(<div style={{background:K.sf,border:"1px solid "+(priced?K.bd:K.bd),borderLeft:"3px solid "+(priced?K.su:K.bd),borderRadius:14,padding:"11px 14px"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:9}}>
+      <div style={{minWidth:0,flex:1}}>
+        {editing?(<div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <input className="rename-input" autoFocus value={draft} onChange={e=>setDraft(e.target.value.toUpperCase())} onFocus={e=>e.target.select()}
+            onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();saveName();}else if(e.key==="Escape"){e.preventDefault();cancelName();}}}
+            style={{flex:"1 1 130px",minWidth:0,background:K.bg,border:"1.5px solid "+K.ac,borderRadius:8,padding:"8px 10px",color:K.tx,fontSize:14,fontWeight:700,fontFamily:"inherit",outline:"none"}}/>
+          <button onMouseDown={e=>e.preventDefault()} onClick={saveName} style={{background:K.su,border:"none",color:"#fff",borderRadius:8,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+          <button onMouseDown={e=>e.preventDefault()} onClick={cancelName} style={{background:"none",border:"1px solid "+K.bd,color:K.tm,borderRadius:8,padding:"8px 12px",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+        </div>):
+        (<button onClick={startName} title="Tap to rename" className="rename-btn" style={{background:"none",border:"none",padding:0,margin:0,color:K.tx,fontSize:14,fontWeight:700,fontFamily:"inherit",cursor:"text",textAlign:"left",display:"inline-flex",alignItems:"baseline",gap:7,maxWidth:"100%"}}>
+          <span style={{borderBottom:"1px dashed "+K.td,paddingBottom:1,wordBreak:"break-word"}}>{r.name}</span>
+          <span style={{color:K.ac,fontSize:12,fontWeight:600,flexShrink:0}}>{"\u270E"}</span></button>)}
+        <div style={{fontSize:10,color:K.td,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span>{r.cat}{r.rack?" · "+r.rack:""} · {r.code}</span>
+          <select value="" onChange={e=>{if(e.target.value){onMove(r.code,e.target.value);e.target.value="";}}} title="Move to another category" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:6,color:K.tm,fontFamily:"inherit",fontSize:10,padding:"2px 4px",outline:"none",cursor:"pointer"}}>
+            <option value="">move to...</option>{moveTargets.filter(c=>c!==r.cat).map(c=><option key={c} value={c}>{c}</option>)}</select>
+        </div></div>
+      {inCatalog?(priced||r.pct||r.extra?<button onClick={()=>onClear(r.code)} title="Clear this item's prices" style={{background:"none",border:"1px solid "+K.bd,borderRadius:7,color:K.tm,fontSize:10.5,fontWeight:600,cursor:"pointer",padding:"4px 8px",fontFamily:"inherit",whiteSpace:"nowrap"}}>Clear</button>:null)
+        :<button onClick={()=>onRemove(r.code)} title="Remove from list (not in catalogue)" style={{background:"none",border:"none",color:K.dn,fontSize:16,cursor:"pointer",lineHeight:1}}>{"✕"}</button>}
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:96}}>
+        <label style={{...lab,color:K.tm}}>Cost</label>
+        <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}><span style={{color:K.tm,fontSize:12}}>{"₹"}</span>{inp("cost",60)}</div>
+        {avg>0?(round2(avg)!==round2(num(r.cost))?<button onClick={()=>onUseAvg(r.code)} style={{background:"none",border:"none",color:K.ac,cursor:"pointer",fontSize:9.5,fontWeight:700,fontFamily:"inherit",padding:0,textAlign:"left"}}>use avg {fmt(avg)}</button>:<span style={{fontSize:9,color:K.td}}>= purchase avg</span>):<span style={{fontSize:9,color:K.td}}>no purchase data</span>}
+      </div>
+      <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"+"}</span>
+      <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:88}}>
+        <label style={{...lab,color:K.tm}}>Extra exp.</label>
+        <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}><span style={{color:K.tm,fontSize:12}}>{"₹"}</span>{inp("extra",52)}</div>
+      </div>
+      <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"="}</span>
+      <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:78}}>
+        <label style={{...lab,color:K.tm}}>Net rate</label>
+        <div style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:8,padding:"8px 10px",fontSize:13,fontWeight:700,color:K.tx,textAlign:"right"}}>{fmt(net)}</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:84}}>
+        <label style={{...lab,color:K.ac}}>Markup %</label>
+        <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.ac+"66",borderRadius:8,padding:"0 8px"}}>{inp("pct",46,{fontWeight:600})}<span style={{color:K.tm,fontSize:12}}>%</span></div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:98}}>
+        <label style={{...lab,color:K.ac}}>Selling price</label>
+        <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.ac+"66",borderRadius:8,padding:"0 8px"}}><span style={{color:K.tm,fontSize:12}}>{"₹"}</span>{inp("sell",66,{color:K.ac,fontSize:14,fontWeight:700})}</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:78,marginLeft:"auto"}}>
+        <label style={{...lab,color:K.tm}}>Profit / pc</label>
+        <div style={{fontSize:13,fontWeight:700,textAlign:"right",paddingTop:8,color:!priced?K.td:profit>0?K.su:profit<0?K.dn:K.tm}}>{priced?fmt(profit):"–"}</div>
+      </div>
+    </div>
+  </div>);
+});
+
+/* sell-rate maths, shared */
+function recalcRow(r,field,v){
+  r={...r,[field]:v};const net=num(r.cost)+num(r.extra);
+  if(field==="pct"){if(net>0&&v!=="")r.sell=numStr(net*(1+num(v)/100));}
+  else if(field==="sell"){if(net>0)r.pct=v===""?"":numStr((num(v)/net-1)*100);}
+  else{ // cost or extra changed
+    if(r.pct!==""&&r.pct!=null){if(net>0)r.sell=numStr(net*(1+num(r.pct)/100));}
+    else if(r.sell!==""&&r.sell!=null){if(net>0)r.pct=numStr((num(r.sell)/net-1)*100);}
+  }
+  return r;
+}
+
 /* ===================== APP ===================== */
 function App(){
-  const[theme,setTheme]=useState("dark");
+  const boot=React.useRef(null);if(!boot.current)boot.current=loadAll(); // read saved data BEFORE first render
+  const B=boot.current;
+  const[theme,setTheme]=useState(B.theme);
   const K=palette(theme);
   const[view,setView]=useState("entry");
-  const[catalog,setCatalog]=useState(DEFAULT_CATALOG);
-  const[purchases,setPurchases]=useState([]);
+  const[catalog,setCatalog]=useState(B.catalog);
+  const[purchases,setPurchases]=useState(B.purchases);
   const[zipBusy,setZipBusy]=useState(false);
   const[zipMsg,setZipMsg]=useState("");
 
@@ -129,39 +373,34 @@ function App(){
   const[editingId,setEditingId]=useState(null);
 
   // catalog browse
-  const[selCat,setSelCat]=useState(Object.keys(DEFAULT_CATALOG)[0]);
+  const[selCat,setSelCat]=useState(Object.keys(B.catalog)[0]||"");
   const[search,setSearch]=useState("");
   const[gSearch,setGSearch]=useState("");
 
   // managers / ui
   const[showMgr,setShowMgr]=useState(false);
   const[showBackup,setShowBackup]=useState(false);
-  const[nName,setNName]=useState("");const[nPrice,setNPrice]=useState("");const[nCode,setNCode]=useState("");
-  const[newCatName,setNewCatName]=useState("");
-  const[editIdx,setEditIdx]=useState(-1);const[editData,setEditData]=useState({});
+  const[newItem,setNewItem]=useState(null); // {mode:"entry"|"sales"|"manage", name, cat}
+  const[mgrSearch,setMgrSearch]=useState("");const[mgrCat,setMgrCat]=useState("");
+  const[editId,setEditId]=useState(null);const[editData,setEditData]=useState({});
   const[confirm,setConfirm]=useState(null);
   const[toast,setToast]=useState("");
   const[detail,setDetail]=useState(null);
   const[repSearch,setRepSearch]=useState("");
   const[repSort,setRepSort]=useState({k:"name",d:1});
 
-  // sell rate calculator
-  const[salesRows,setSalesRows]=useState([]);
+  // sell rate calculator (every catalogue item appears here automatically)
+  const[salesRows,setSalesRows]=useState(B.sales);
   const[salesSearch,setSalesSearch]=useState("");
   const[salesCatFilter,setSalesCatFilter]=useState("");
   const[salesSort,setSalesSort]=useState({k:"name",d:1});
-  const[salesPickerOpen,setSalesPickerOpen]=useState(false);
-  const[sGlobal,setSGlobal]=useState("");
-  const[sCat,setSCat]=useState(Object.keys(DEFAULT_CATALOG)[0]);
-  const[sFilter,setSFilter]=useState("");
-  const[scName,setScName]=useState("");const[scCost,setScCost]=useState("");
-  const[nCat,setNCat]=useState("Custom");   // category for custom item added in Entry
-  const[scCat,setScCat]=useState("Custom"); // category for custom item added in Sales
-  const[catOverride,setCatOverride]=useState({}); // code -> category (for items not in catalogue)
+  const[salesShow,setSalesShow]=useState("all"); // all | priced | unpriced | bought
+  const[salesLimit,setSalesLimit]=useState(60);
+  const[catOverride,setCatOverride]=useState(B.override); // code -> category (for items not in catalogue)
 
   // monthly profit
   const[pfMonth,setPfMonth]=useState(monthISO());
-  const[profitData,setProfitData]=useState({}); // { "2026-07": { CODE:{qty,sell,cost} } }
+  const[profitData,setProfitData]=useState(B.profit); // { "2026-07": { CODE:{qty,sell,cost} } }
   const[pfSearch,setPfSearch]=useState("");
   const[pfCat,setPfCat]=useState("");
   const[pfOnly,setPfOnly]=useState(false);
@@ -169,51 +408,89 @@ function App(){
   // history month folding
   const[openMonths,setOpenMonths]=useState({});
 
-  // load
-  useEffect(()=>{
-    try{const t=localStorage.getItem("amazza-pt-theme");if(t)setTheme(t);}catch(e){}
-    try{const c=localStorage.getItem("amazza-pt-catalog-v1");if(c)setCatalog(JSON.parse(c));}catch(e){}
-    try{const p=localStorage.getItem("amazza-pt-purchases-v1");if(p)setPurchases(JSON.parse(p));}catch(e){}
-    try{const s=localStorage.getItem("amazza-pt-sales-v1");if(s)setSalesRows(JSON.parse(s));}catch(e){}
-    try{const f=localStorage.getItem("amazza-pt-profit-v1");if(f)setProfitData(JSON.parse(f));}catch(e){}
-    try{const o=localStorage.getItem("amazza-pt-catoverride-v1");if(o)setCatOverride(JSON.parse(o));}catch(e){}
-  },[]);
   useEffect(()=>{document.body.style.background=K.bg;},[K.bg]);
   useEffect(()=>{const h=()=>{const a=document.activeElement;if(a&&a.tagName==="INPUT"&&a.type==="number")a.blur();};window.addEventListener("wheel",h,{passive:true});return()=>window.removeEventListener("wheel",h);},[]);
+  useEffect(()=>{if(B.migrated>0)setTimeout(()=>flash(B.migrated+" custom item"+(B.migrated>1?"s":"")+" moved into your catalogue"),400);},[]);
 
-  const flash=m=>{setToast(m);setTimeout(()=>setToast(""),2200);};
-  const saveCatalog=nc=>{setCatalog(nc);try{localStorage.setItem("amazza-pt-catalog-v1",JSON.stringify(nc));}catch(e){}};
-  const savePurchases=list=>{setPurchases(list);try{localStorage.setItem("amazza-pt-purchases-v1",JSON.stringify(list));}catch(e){}};
-  const saveSales=list=>{setSalesRows(list);try{localStorage.setItem("amazza-pt-sales-v1",JSON.stringify(list));}catch(e){}};
-  const saveProfit=d=>{setProfitData(d);try{localStorage.setItem("amazza-pt-profit-v1",JSON.stringify(d));}catch(e){}};
-  const saveOverride=o=>{setCatOverride(o);try{localStorage.setItem("amazza-pt-catoverride-v1",JSON.stringify(o));}catch(e){}};
-  const toggleTheme=()=>{const t=theme==="dark"?"light":"dark";setTheme(t);try{localStorage.setItem("amazza-pt-theme",t);}catch(e){}};
+  const toastT=React.useRef(null);
+  const flash=m=>{setToast(m);clearTimeout(toastT.current);toastT.current=setTimeout(()=>setToast(""),2400);};
+  // all savers accept a value OR an updater function, and write to the same storage keys as before
+  const mkSaver=(set,key)=>x=>set(prev=>{const next=typeof x==="function"?x(prev):x;if(next!==prev)writeJSON(key,next);return next;});
+  const saveCatalog=useMemo(()=>mkSaver(setCatalog,KEYS.catalog),[]);
+  const savePurchases=useMemo(()=>mkSaver(setPurchases,KEYS.purchases),[]);
+  const saveSales=useMemo(()=>mkSaver(setSalesRows,KEYS.sales),[]);
+  const saveProfit=useMemo(()=>mkSaver(setProfitData,KEYS.profit),[]);
+  const saveOverride=useMemo(()=>mkSaver(setCatOverride,KEYS.override),[]);
+  const toggleTheme=()=>{const t=theme==="dark"?"light":"dark";setTheme(t);try{localStorage.setItem(KEYS.theme,t);}catch(e){}};
 
   // ----- per-item stats (DERIVED — single source of truth) -----
   const catOf=useMemo(()=>{const m={};Object.entries(catalog).forEach(([c,arr])=>arr.forEach(p=>m[p.id]=c));return m;},[catalog]);
+  const nameOf=useMemo(()=>{const m={};Object.values(catalog).forEach(arr=>arr.forEach(p=>m[p.id]=p.name));return m;},[catalog]);
   const stats=useMemo(()=>{
     const map={};
     const sorted=[...purchases].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
     sorted.forEach(p=>(p.items||[]).forEach(li=>{
       const code=li.code;const q=Number(li.qty)||0;const r=parseFloat(li.rate)||0;if(q<=0)return;
-      if(!map[code])map[code]={code,name:li.name||code,rack:li.rack||"",cat:catOverride[code]||catOf[code]||li.cat||"Other",qty:0,val:0,count:0,lastRate:0,lastDate:"",min:Infinity,max:0};
+      if(!map[code])map[code]={code,name:(nameOf[code])||li.name||code,rack:li.rack||"",cat:catOverride[code]||catOf[code]||li.cat||"Other",qty:0,val:0,count:0,lastRate:0,lastDate:"",min:Infinity,max:0};
       const m=map[code];m.qty+=q;m.val+=q*r;m.count++;m.lastRate=r;m.lastDate=p.date;m.min=Math.min(m.min,r);m.max=Math.max(m.max,r);
     }));
     Object.values(map).forEach(m=>{m.avg=m.qty>0?m.val/m.qty:0;if(m.min===Infinity)m.min=0;});
     return map;
-  },[purchases,catOf,catOverride]);
+  },[purchases,catOf,catOverride,nameOf]);
   const lastRateOf=code=>stats[code]?String(stats[code].lastRate):"";
+  const catNames=useMemo(()=>Object.keys(catalog),[catalog]);
+  const catItem=useMemo(()=>{const m={};Object.values(catalog).forEach(arr=>arr.forEach(p=>m[p.id]=p));return m;},[catalog]);
+
+  // ----- AUTO SYNC: every catalogue item has a row in Sell Rates -----
+  // adds missing items, keeps name/category/rack in step with the catalogue, and fills an empty cost
+  // from the weighted-average purchase cost. Existing prices you typed are never overwritten.
+  useEffect(()=>{
+    saveSales(prev=>{
+      let changed=false;const have=new Set();
+      const out=prev.map(r=>{
+        have.add(r.code);let x=r;const c=catItem[r.code];
+        if(c){const cat=catOf[r.code];if(x.name!==c.name||x.cat!==cat||(x.rack||"")!==(c.rack||"")){x={...x,name:c.name,cat,rack:c.rack||""};}}
+        const avg=stats[r.code]?stats[r.code].avg:0;
+        if((x.cost===""||x.cost==null)&&avg>0)x=recalcRow(x,"cost",numStr(avg));
+        if(x!==r)changed=true;return x;
+      });
+      Object.entries(catalog).forEach(([cat,arr])=>arr.forEach(p=>{
+        if(have.has(p.id))return;have.add(p.id);changed=true;
+        const avg=stats[p.id]?stats[p.id].avg:0;
+        out.push({code:p.id,name:p.name,cat,rack:p.rack||"",cost:avg>0?numStr(avg):"",extra:"",pct:"",sell:""});
+      }));
+      return changed?out:prev;
+    });
+  },[catalog,catItem,catOf,stats]);
+
+  // ----- ONE way to create an item -----
+  const createItem=({name,cat,rack,rate,sell,qty},mode)=>{
+    const id=nextCode(catalog,cat);
+    const item={id,name,price:num(sell)||0,rack:rack||""};
+    saveCatalog(prev=>({...prev,[cat]:[...(prev[cat]||[]),item]}));
+    let row={code:id,name,cat,rack:item.rack,cost:"",extra:"",pct:"",sell:""};
+    if(num(rate)>0)row=recalcRow(row,"cost",numStr(num(rate)));
+    if(num(sell)>0)row=recalcRow(row,"sell",numStr(num(sell)));
+    saveSales(prev=>[...prev.filter(r=>r.code!==id),row]);
+    if(mode==="entry")setLines(l=>[...l,{code:id,name,rack:item.rack,cat,qty:qty||1,rate:rate?String(num(rate)):"",desc:""}]);
+    flash(name+" added ("+id+")");
+  };
+  const openNewItem=(mode,name)=>setNewItem({mode,name:name||"",cat:mode==="entry"&&!gSearch.trim()?selCat:(mode==="sales"&&salesCatFilter?salesCatFilter:(mode==="manage"&&mgrCat?mgrCat:""))});
+  const pickExisting=(p,mode)=>{
+    if(mode==="entry"){addLine(p);flash(p.name+" added to purchase");}
+    else if(mode==="sales"){setSalesSearch(p.name);setSalesCatFilter("");setSalesShow("all");}
+    else{setMgrSearch(p.name);setMgrCat("");}
+  };
 
   // ----- working purchase ops -----
   const lineQty=useMemo(()=>{const m={};lines.forEach(l=>m[l.code]=(m[l.code]||0)+l.qty);return m;},[lines]);
-  const addLine=p=>{
+  const addLine=p=>setLines(lines=>{
     const ex=lines.findIndex(l=>l.code===p.id);
-    if(ex>=0){const u=[...lines];u[ex]={...u[ex],qty:u[ex].qty+1};setLines(u);}
-    else setLines([...lines,{code:p.id,name:p.name,rack:p.rack||"",cat:catOf[p.id]||"Other",qty:1,rate:lastRateOf(p.id),desc:""}]);
-  };
+    if(ex>=0){const u=[...lines];u[ex]={...u[ex],qty:u[ex].qty+1};return u;}
+    return[...lines,{code:p.id,name:p.name,rack:p.rack||"",cat:catOf[p.id]||p._cat||"Other",qty:1,rate:lastRateOf(p.id),desc:""}];
+  });
   const updateLine=(idx,f,v)=>{const u=[...lines];u[idx]={...u[idx],[f]:f==="qty"?(Math.max(0,Number(v)||0)):v};setLines(u);};
   const removeLine=idx=>{const u=lines.filter((_,i)=>i!==idx);setLines(u);};
-  const addCustomLine=()=>{if(!nName||!nPrice)return;const code="CUSTOM-"+uid();const cat=nCat||"Custom";setLines([...lines,{code,name:nName,rack:nCode||"",cat,qty:1,rate:String(Number(nPrice)||0),desc:""}]);if(cat!=="Custom")saveOverride({...catOverride,[code]:cat});setNName("");setNPrice("");setNCode("");};
 
   const resetWorking=()=>{setLines([]);setPDate(todayISO());setPVendor("");setPBillNo("");setPNote("");setEditingId(null);setGSearch("");setSearch("");};
   const subtotal=useMemo(()=>lines.reduce((s,l)=>s+l.qty*(parseFloat(l.rate)||0),0),[lines]);
@@ -222,8 +499,8 @@ function App(){
   const savePurchase=()=>{
     if(lines.length===0)return flash("Add at least one item");
     for(const l of lines){
-      if(!(l.qty>0))return flash(l.name+" — quantity must be more than 0");
-      if(l.rate===""||l.rate==null||isNaN(parseFloat(l.rate))||parseFloat(l.rate)<0)return flash(l.name+" — enter a valid rate");
+      if(!(l.qty>0))return flash(l.name+": quantity must be more than 0");
+      if(l.rate===""||l.rate==null||isNaN(parseFloat(l.rate))||parseFloat(l.rate)<0)return flash(l.name+": enter a valid rate");
     }
     const rec={
       id:editingId||uid(),date:pDate||todayISO(),vendor:pVendor.trim(),billNo:pBillNo.trim(),note:pNote.trim(),
@@ -393,17 +670,48 @@ function App(){
   };
 
   // ----- catalog manager ops -----
-  const addToCat=()=>{if(!nName||!nPrice)return;const nc={...catalog};if(!nc[selCat])nc[selCat]=[];nc[selCat]=[...nc[selCat],{id:"CUS-"+uid().toUpperCase(),name:nName,price:Number(nPrice)||0,rack:nCode||""}];saveCatalog(nc);setNName("");setNPrice("");setNCode("");flash("Item added to catalogue");};
-  const rmFromCat=(cat,idx)=>setConfirm({msg:'Remove "'+catalog[cat][idx].name+'" from the catalogue? (Past purchase history is kept.)',action:()=>{saveCatalog({...catalog,[cat]:catalog[cat].filter((_,i)=>i!==idx)});setConfirm(null);}});
-  const startEdit=(idx,p)=>{setEditIdx(idx);setEditData({...p});};
-  const saveEdit=()=>{if(editIdx<0)return;const nc={...catalog};nc[selCat]=[...nc[selCat]];nc[selCat][editIdx]={...nc[selCat][editIdx],name:editData.name,price:Number(editData.price)||0,rack:editData.rack||""};saveCatalog(nc);setEditIdx(-1);};
-  const moveItem=(fromCat,idx,toCat)=>{if(fromCat===toCat)return;const nc={...catalog};const item=nc[fromCat][idx];nc[fromCat]=nc[fromCat].filter((_,i)=>i!==idx);if(!nc[toCat])nc[toCat]=[];nc[toCat]=[...nc[toCat],item];saveCatalog(nc);};
-  const addCategory=()=>{const n=newCatName.trim();if(!n||catalog[n])return;saveCatalog({...catalog,[n]:[]});setSelCat(n);setNewCatName("");flash("Category added");};
-  const removeCategory=cat=>{if(catalog[cat]&&catalog[cat].length>0)return flash("Empty the category first");setConfirm({msg:'Delete empty category "'+cat+'"?',action:()=>{const nc={...catalog};delete nc[cat];saveCatalog(nc);if(selCat===cat)setSelCat(Object.keys(nc)[0]||"");setConfirm(null);}});};
+  const removeItem=p=>{
+    const hasBuys=stats[p.id];
+    setConfirm({msg:'Remove "'+p.name+'" from the catalogue? Its Sell Rates row goes too.'+(hasBuys?' Its purchase history is kept.':''),action:()=>{
+      saveCatalog(prev=>{const nc={};Object.keys(prev).forEach(c=>nc[c]=prev[c].filter(x=>x.id!==p.id));return nc;});
+      saveSales(prev=>prev.filter(r=>r.code!==p.id));
+      setConfirm(null);flash("Item removed");}});
+  };
+  const startEdit=p=>{setEditId(p.id);setEditData({name:p.name,rack:p.rack||"",price:String(p.price||"")});};
+  const saveEdit=()=>{
+    if(!editId)return;const nm=String(editData.name||"").trim().toUpperCase();if(!nm)return flash("Name can't be empty");
+    saveCatalog(prev=>{const nc={};Object.keys(prev).forEach(c=>nc[c]=prev[c].map(x=>x.id===editId?{...x,name:nm,rack:String(editData.rack||"").trim().toUpperCase(),price:num(editData.price)}:x));return nc;});
+    setEditId(null);flash("Item updated");
+  };
+  const moveItemTo=(code,toCat)=>{
+    saveCatalog(prev=>{
+      let item=null,from=null;Object.entries(prev).forEach(([c,a])=>{const f=a.find(x=>x.id===code);if(f){item=f;from=c;}});
+      if(!item||from===toCat)return prev;
+      return{...prev,[from]:prev[from].filter(x=>x.id!==code),[toCat]:[...(prev[toCat]||[]),item]};
+    });
+  };
+  const renameCategory=cat=>{
+    const n=(window.prompt("Rename category \""+cat+"\" to:",cat)||"").trim().toUpperCase();
+    if(!n||n===cat)return;if(catalog[n])return flash("A category with that name already exists");
+    saveCatalog(prev=>{const nc={};Object.keys(prev).forEach(c=>{nc[c===cat?n:c]=prev[c];});return nc;});
+    if(mgrCat===cat)setMgrCat(n);if(selCat===cat)setSelCat(n);flash("Category renamed");
+  };
+  const removeCategory=cat=>{if(catalog[cat]&&catalog[cat].length>0)return flash("Move or remove its items first");setConfirm({msg:'Delete empty category "'+cat+'"?',action:()=>{saveCatalog(prev=>{const nc={...prev};delete nc[cat];return nc;});if(selCat===cat)setSelCat(Object.keys(catalog).find(c=>c!==cat)||"");if(mgrCat===cat)setMgrCat("");setConfirm(null);}});};
+  const mgrRows=useMemo(()=>{
+    const ws=words(mgrSearch);const out=[];
+    Object.entries(catalog).forEach(([c,arr])=>{if(mgrCat&&c!==mgrCat)return;arr.forEach(p=>{if(!ws.length||matches(p.name+" "+(p.rack||"")+" "+p.id+" "+c,ws))out.push({...p,_cat:c});});});
+    return out;
+  },[catalog,mgrSearch,mgrCat]);
 
   // ----- backup -----
-  const exportData=()=>{const blob=new Blob([JSON.stringify({version:2,catalog,purchases,sales:salesRows,profit:profitData,catOverride},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="amazza-purchases-"+todayISO()+".json";a.click();flash("Backup downloaded");};
-  const importData=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(d.catalog)saveCatalog(d.catalog);if(d.purchases)savePurchases(d.purchases);if(d.sales)saveSales(d.sales);if(d.profit)saveProfit(d.profit);if(d.catOverride)saveOverride(d.catOverride);setShowBackup(false);flash("Backup restored");}catch(x){flash("Could not read file");}};r.readAsText(f);};
+  const exportData=()=>{const blob=new Blob([JSON.stringify({version:3,catalog,purchases,sales:salesRows,profit:profitData,catOverride},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="amazza-purchases-"+todayISO()+".json";a.click();flash("Backup downloaded");};
+  const importData=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{
+    const d=JSON.parse(r.result);
+    let cat=d.catalog||catalog;const pur=d.purchases||purchases;const sal=d.sales||salesRows;const ov=d.catOverride||catOverride;
+    const m=migrateCustomItems(cat,pur,sal,ov);cat=m.catalog;
+    saveCatalog(cat);if(d.purchases)savePurchases(d.purchases);if(d.sales)saveSales(d.sales);if(d.profit)saveProfit(d.profit);if(d.catOverride)saveOverride(d.catOverride);
+    setShowBackup(false);flash("Backup restored");}catch(x){flash("Could not read file");}};r.readAsText(f);e.target.value="";};
+  const downloadSnapshot=()=>{try{const s=localStorage.getItem(SNAPSHOT_KEY);if(!s)return flash("No snapshot on this device");const snap=JSON.parse(s);const out={version:2,snapshotTakenAt:snap.takenAt};[["catalog","catalog"],["purchases","purchases"],["sales","sales"],["profit","profit"],["override","catOverride"]].forEach(([k,o])=>{if(snap[k])out[o]=JSON.parse(snap[k]);});const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="amazza-before-upgrade-"+todayISO()+".json";a.click();flash("Pre-upgrade copy downloaded");}catch(e){flash("Could not read snapshot");}};
   const wipeAll=()=>setConfirm({msg:"Erase ALL purchases and reset the catalogue? This cannot be undone.",action:()=>{savePurchases([]);saveCatalog(DEFAULT_CATALOG);saveSales([]);saveProfit({});saveOverride({});setConfirm(null);setShowBackup(false);flash("All data erased");}});
 
   // ----- catalog browse filter -----
@@ -425,60 +733,52 @@ function App(){
   const grandSpend=useMemo(()=>purchases.reduce((s,p)=>s+(Number(p.total)||0),0),[purchases]);
 
   // ----- sell rate calculator -----
-  const inSales=useMemo(()=>{const m={};salesRows.forEach(r=>m[r.code]=true);return m;},[salesRows]);
-  const salesPickRows=useMemo(()=>{
-    const out=[];
-    if(sGlobal.trim()){const w=sGlobal.toLowerCase().trim().split(/\s+/);Object.entries(catalog).forEach(([cat,arr])=>arr.forEach(p=>{const hay=(p.name+" "+(p.rack||"")+" "+p.id).toLowerCase();if(w.every(x=>hay.includes(x)))out.push({...p,_cat:cat});}));}
-    else{(catalog[sCat]||[]).forEach(p=>{if(!sFilter.trim())out.push({...p,_cat:sCat});else{const hay=(p.name+" "+(p.rack||"")+" "+p.id).toLowerCase();const w=sFilter.toLowerCase().trim().split(/\s+/);if(w.every(x=>hay.includes(x)))out.push({...p,_cat:sCat});}});}
-    return out;
-  },[catalog,sCat,sFilter,sGlobal]);
-  const addSalesItem=p=>{
-    if(salesRows.some(r=>r.code===p.id))return flash(p.name+" is already in the list");
-    const avg=stats[p.id]?stats[p.id].avg:0;
-    saveSales([...salesRows,{code:p.id,name:p.name,cat:catOf[p.id]||p._cat||"Other",rack:p.rack||"",cost:avg>0?numStr(avg):"",extra:"",pct:"",sell:""}]);
-  };
-  const addSalesAll=()=>{const have=new Set(salesRows.map(r=>r.code));const add=salesPickRows.filter(p=>!have.has(p.id)).map(p=>{const avg=stats[p.id]?stats[p.id].avg:0;return{code:p.id,name:p.name,cat:catOf[p.id]||p._cat||"Other",rack:p.rack||"",cost:avg>0?numStr(avg):"",extra:"",pct:"",sell:""};});if(add.length===0){flash(sGlobal.trim()?"All matching items already added":"All items in this category already added");return;}saveSales([...salesRows,...add]);flash("Added "+add.length+" item"+(add.length>1?"s":""));};
-  const addSalesCustom=()=>{if(!scName)return;const code="SX-"+uid();const cat=scCat||"Custom";saveSales([...salesRows,{code,name:scName,cat,rack:"",cost:scCost?numStr(num(scCost)):"",extra:"",pct:"",sell:""}]);if(cat!=="Custom")saveOverride({...catOverride,[code]:cat});setScName("");setScCost("");};
-  const changeRowCat=(i,cat)=>{
+  // ----- sell rate ops (by item code) -----
+  const onSalesField=React.useCallback((code,f,v)=>{v=onlyDec(v);saveSales(prev=>prev.map(r=>r.code===code?recalcRow(r,f,v):r));},[]);
+  const statsRef=React.useRef(stats);statsRef.current=stats;
+  const onUseAvg=React.useCallback(code=>{const st=statsRef.current[code];if(!st||!(st.avg>0))return;saveSales(prev=>prev.map(r=>r.code===code?recalcRow(r,"cost",numStr(st.avg)):r));},[]);
+  const onClearRow=React.useCallback(code=>{saveSales(prev=>prev.map(r=>r.code===code?{...r,extra:"",pct:"",sell:""}:r));},[]);
+  const onRemoveRow=React.useCallback(code=>{saveSales(prev=>prev.filter(r=>r.code!==code));},[]);
+  const onRenameRow=React.useCallback((code,name)=>{
+    const cat=catalogRef.current;
+    const inCat=Object.values(cat).some(a=>a.some(x=>x.id===code));
+    const clash=Object.values(cat).some(a=>a.some(x=>x.id!==code&&x.name===name));
+    if(inCat)saveCatalog(prev=>{const nc={};Object.keys(prev).forEach(c=>nc[c]=prev[c].map(x=>x.id===code?{...x,name}:x));return nc;});
+    saveSales(prev=>prev.map(r=>r.code===code?{...r,name}:r));
+    flash(clash?"Renamed (another item already has this name)":"Renamed to "+name);
+  },[]);
+  const catalogRef=React.useRef(catalog);catalogRef.current=catalog;
+  const onMoveRow=React.useCallback((code,cat)=>{
     if(!cat)return;
-    const u=[...salesRows];const code=u[i].code;if(u[i].cat===cat)return;
-    u[i]={...u[i],cat};saveSales(u);
-    const fromCat=catOf[code];
-    if(fromCat&&fromCat!==cat&&catalog[fromCat]){ // real catalogue item — physically move it
-      const idx=catalog[fromCat].findIndex(p=>p.id===code);
-      if(idx>=0){const nc={...catalog};const item=nc[fromCat][idx];nc[fromCat]=nc[fromCat].filter((_,x)=>x!==idx);if(!nc[cat])nc[cat]=[];nc[cat]=[...nc[cat],item];saveCatalog(nc);}
-    }else if(!fromCat){ // custom item — remember its category
-      saveOverride({...catOverride,[code]:cat});
-    }
+    const inCat=Object.values(catalogRef.current).some(a=>a.some(x=>x.id===code));
+    if(inCat)moveItemTo(code,cat); // sync updates the row's category
+    else{saveOverride(o=>({...o,[code]:cat}));saveSales(prev=>prev.map(r=>r.code===code?{...r,cat}:r));}
     flash("Moved to "+cat);
-  };
-  const removeSalesRow=i=>saveSales(salesRows.filter((_,x)=>x!==i));
-  const clearSales=()=>{if(salesRows.length===0)return;setConfirm({msg:"Clear all "+salesRows.length+" item(s) from the sell rate calculator? (Your catalogue and purchases are kept.)",action:()=>{saveSales([]);setConfirm(null);}});};
-  const refillAvg=i=>{const r=salesRows[i];const avg=stats[r.code]?stats[r.code].avg:0;if(avg<=0)return;changeCost(i,numStr(avg));};
-  const changeCost=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],cost:v};const net=num(r.cost)+num(r.extra);if(r.pct!==""&&r.pct!=null){r.sell=net>0?numStr(net*(1+num(r.pct)/100)):r.sell;}else if(r.sell!==""){r.pct=net>0?numStr((num(r.sell)/net-1)*100):r.pct;}u[i]=r;saveSales(u);};
-  const changeExtra=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],extra:v};const net=num(r.cost)+num(r.extra);if(r.pct!==""&&r.pct!=null){r.sell=net>0?numStr(net*(1+num(r.pct)/100)):r.sell;}else if(r.sell!==""){r.pct=net>0?numStr((num(r.sell)/net-1)*100):r.pct;}u[i]=r;saveSales(u);};
-  const changePct=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],pct:v};const net=num(r.cost)+num(r.extra);r.sell=net>0?numStr(net*(1+num(v)/100)):r.sell;u[i]=r;saveSales(u);};
-  const changeSell=(i,v)=>{v=onlyDec(v);const u=[...salesRows];const r={...u[i],sell:v};const net=num(r.cost)+num(r.extra);if(net>0)r.pct=numStr((num(v)/net-1)*100);u[i]=r;saveSales(u);};
+  },[]);
+  const salesCounts=useMemo(()=>{let priced=0,bought=0;salesRows.forEach(r=>{if(num(r.sell)>0)priced++;if(stats[r.code])bought++;});return{all:salesRows.length,priced,unpriced:salesRows.length-priced,bought};},[salesRows,stats]);
   const salesView=useMemo(()=>{
-    let rows=salesRows.map((r,i)=>({...r,_i:i,net:num(r.cost)+num(r.extra),profit:num(r.sell)-(num(r.cost)+num(r.extra))}));
-    if(salesSearch.trim()){const w=salesSearch.toLowerCase().trim().split(/\s+/);rows=rows.filter(r=>{const hay=(r.name+" "+r.code+" "+(r.rack||"")).toLowerCase();return w.every(x=>hay.includes(x));});}
-    if(salesCatFilter)rows=rows.filter(r=>r.cat===salesCatFilter);
+    let rows=salesRows.map(r=>({r,net:num(r.cost)+num(r.extra)}));
+    const ws=words(salesSearch);
+    if(ws.length)rows=rows.filter(({r})=>matches(r.name+" "+r.code+" "+(r.rack||"")+" "+(r.cat||""),ws));
+    if(salesCatFilter)rows=rows.filter(({r})=>r.cat===salesCatFilter);
+    if(salesShow==="priced")rows=rows.filter(({r})=>num(r.sell)>0);
+    else if(salesShow==="unpriced")rows=rows.filter(({r})=>!(num(r.sell)>0));
+    else if(salesShow==="bought")rows=rows.filter(({r})=>stats[r.code]);
     const{k,d}=salesSort;
-    rows.sort((a,b)=>{let x,y;
-      if(k==="name"){x=a.name.toLowerCase();y=b.name.toLowerCase();return x<y?-d:x>y?d:0;}
-      if(k==="pct"){x=num(a.pct);y=num(b.pct);}else if(k==="sell"){x=num(a.sell);y=num(b.sell);}else if(k==="cost"){x=num(a.cost);y=num(b.cost);}else if(k==="net"){x=a.net;y=b.net;}else if(k==="profit"){x=a.profit;y=b.profit;}else{x=a.name.toLowerCase();y=b.name.toLowerCase();return x<y?-d:x>y?d:0;}
-      return(x-y)*d;});
-    return rows;
-  },[salesRows,salesSearch,salesSort,salesCatFilter]);
+    const val=x=>k==="pct"?num(x.r.pct):k==="sell"?num(x.r.sell):k==="cost"?num(x.r.cost):k==="net"?x.net:k==="profit"?num(x.r.sell)-x.net:null;
+    rows.sort((a,b)=>{const va=val(a),vb=val(b);if(va==null){const x=a.r.name.toLowerCase(),y=b.r.name.toLowerCase();return x<y?-d:x>y?d:0;}return(va-vb)*d;});
+    return rows.map(x=>x.r);
+  },[salesRows,salesSearch,salesSort,salesCatFilter,salesShow,stats]);
+  useEffect(()=>{setSalesLimit(60);},[salesSearch,salesCatFilter,salesShow,salesSort]);
   const salesCats=useMemo(()=>{const s=new Set();salesRows.forEach(r=>{if(r.cat)s.add(r.cat);});return Array.from(s).sort((a,b)=>a.toLowerCase()<b.toLowerCase()?-1:1);},[salesRows]);
-  const salesAvgMarkup=useMemo(()=>{const v=salesRows.filter(r=>r.pct!==""&&r.pct!=null).map(r=>num(r.pct));if(v.length===0)return null;return round2(v.reduce((s,x)=>s+x,0)/v.length);},[salesRows]);
+  const salesAvgMarkup=useMemo(()=>{const v=salesRows.filter(r=>num(r.sell)>0&&r.pct!==""&&r.pct!=null).map(r=>num(r.pct));if(v.length===0)return null;return round2(v.reduce((s,x)=>s+x,0)/v.length);},[salesRows]);
   const exportSales=()=>{
     if(salesRows.length===0)return flash("No items in the sell rate calculator");
     const header=["Item","Category","Rack","Code","Cost","Extra Expense","Net Rate","Markup %","Selling Price","Profit / pc"];
-    const body=salesView.map(r=>[r.name,r.cat,r.rack||"",r.code,round2(num(r.cost)),round2(num(r.extra)),round2(r.net),round2(num(r.pct)),round2(num(r.sell)),round2(r.profit)]);
+    const body=salesView.map(r=>{const net=num(r.cost)+num(r.extra);const priced=num(r.sell)>0;return[r.name,r.cat,r.rack||"",r.code,round2(num(r.cost)),round2(num(r.extra)),round2(net),priced?round2(num(r.pct)):"",priced?round2(num(r.sell)):"",priced?round2(num(r.sell)-net):""];});
     const fname="amazza-sell-rates-"+todayISO();
     if(window.XLSX){
-      const aoa=[["AMAZZA \u2014 Sell Rate Calculator"],["Generated "+dispDate(todayISO())+"   \u00B7   Items: "+salesRows.length],[],header,...body];
+      const aoa=[["AMAZZA: Sell Rates"],["Generated "+dispDate(todayISO())+"   \u00B7   Items: "+body.length+(salesView.length!==salesRows.length?" (filtered view)":"")],[],header,...body];
       const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=[{wch:34},{wch:20},{wch:10},{wch:10},{wch:11},{wch:13},{wch:11},{wch:10},{wch:13},{wch:11}];
       const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Sell Rates");XLSX.writeFile(wb,fname+".xlsx");flash("Sell rates exported");
     }else{
@@ -501,10 +801,12 @@ function App(){
     const map={};
     const netOf={};salesRows.forEach(r=>{const n=num(r.cost)+num(r.extra);if(n>0)netOf[r.code]=n;});
     Object.values(stats).forEach(r=>{map[r.code]={code:r.code,name:r.name,rack:r.rack,cat:r.cat,avg:r.avg,net:netOf[r.code]||0};});
-    salesRows.forEach(r=>{if(!map[r.code])map[r.code]={code:r.code,name:r.name,rack:r.rack||"",cat:catOverride[r.code]||r.cat||"Custom",avg:num(r.cost),net:netOf[r.code]||0};});
+    const everEntered={};Object.values(profitData).forEach(m=>Object.keys(m||{}).forEach(c=>everEntered[c]=true));
+    salesRows.forEach(r=>{if(map[r.code])return;if(!(num(r.cost)>0||num(r.sell)>0||everEntered[r.code]))return; // only items with a cost or price set
+      map[r.code]={code:r.code,name:r.name,rack:r.rack||"",cat:r.cat||catOverride[r.code]||"Custom",avg:num(r.cost),net:netOf[r.code]||0};});
     Object.values(map).forEach(b=>{b.def=b.net>0?b.net:b.avg;b.src=b.net>0?"net":"avg";});
     return Object.values(map);
-  },[stats,salesRows,catOverride]);
+  },[stats,salesRows,catOverride,profitData]);
   const pfRows=useMemo(()=>{
     let rows=pfBase.map(b=>{
       const e=pfEntry(b.code);
@@ -584,7 +886,7 @@ function App(){
     }
   };
 
-  const navBtn=(id,label)=>(<button onClick={()=>setView(id)} style={{background:view===id?K.ag:"transparent",border:"1px solid "+(view===id?K.ac:"transparent"),color:view===id?K.ac:K.tm,borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>{label}</button>);
+  const navBtn=(id,label)=>(<button onClick={()=>setView(id)} style={{background:view===id?K.ag:"transparent",border:"1px solid "+(view===id?K.ac:"transparent"),color:view===id?K.ac:K.tm,borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>);
 
   return(<div style={{minHeight:"100vh",background:K.bg,color:K.tx,fontFamily:"'Montserrat',sans-serif",paddingBottom:30}}>
     {confirm&&<Confirm K={K} msg={confirm.msg} onYes={confirm.action} onNo={()=>setConfirm(null)}/>}
@@ -599,8 +901,8 @@ function App(){
         <div><div style={{fontSize:13,fontWeight:600,color:K.tm}}>Purchase Tracker</div>
         <div style={{fontSize:10,color:K.td}}>{totalP} catalogue items · {purchases.length} purchases</div></div>
       </div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {navBtn("entry","Entry")}{navBtn("report","Report")}{navBtn("sales","Sales")}{navBtn("profit","Profit")}{navBtn("history","History")}
+      <div className="topnav" style={{display:"flex",gap:8,alignItems:"center"}}>
+        {navBtn("entry","Entry")}{navBtn("report","Report")}{navBtn("sales","Sell Rates")}{navBtn("profit","Profit")}{navBtn("history","History")}
         <button onClick={toggleTheme} title="Theme" style={{width:38,height:38,borderRadius:10,border:"1px solid "+K.bd,background:K.cd,color:K.tx,cursor:"pointer",fontSize:16}}>{theme==="dark"?"\u263E":"\u2600"}</button>
         <button onClick={()=>setShowBackup(true)} title="Backup" style={{width:38,height:38,borderRadius:10,border:"1px solid "+K.bd,background:K.cd,color:K.tx,cursor:"pointer",fontSize:18}}>{"\u22EF"}</button>
       </div>
@@ -639,7 +941,10 @@ function App(){
         <div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,padding:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:K.tm}}>Catalogue</span>
-            <Btn K={K} variant="ghost" onClick={()=>setShowMgr(true)} style={{padding:"6px 12px",fontSize:12}}>Manage</Btn>
+            <div style={{display:"flex",gap:6}}>
+              <Btn K={K} variant="ghost" onClick={()=>setShowMgr(true)} style={{padding:"7px 12px",fontSize:12}}>Edit items</Btn>
+              <Btn K={K} onClick={()=>openNewItem("entry",gSearch.trim())} style={{padding:"7px 14px",fontSize:12.5}}>{"\u002B"} New item</Btn>
+            </div>
           </div>
           <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder={"\uD83D\uDD0D  Search all "+totalP+" items..."} style={{width:"100%",boxSizing:"border-box",background:K.ag,border:"1.5px solid "+K.ac+"55",borderRadius:10,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:10}}/>
           {!gSearch.trim()&&(<div style={{display:"flex",gap:8,marginBottom:10}}>
@@ -655,15 +960,20 @@ function App(){
                 <div style={{fontSize:9.5,color:K.td,marginTop:4}}>{p.id}{p.rack?" · "+p.rack:""}{gSearch.trim()?" · "+p._cat:""}</div>
                 <div style={{fontSize:10,color:K.tm,marginTop:3}}>{last?"last "+fmt(last.lastRate):<span style={{color:K.td}}>sell {fmt(p.price)}</span>}</div>
               </button>);})}
-            {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:K.tm,padding:24,fontSize:13}}>No items found.</div>}
+            {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:K.tm,padding:"22px 10px",fontSize:13}}>
+              {(gSearch.trim()||search.trim())?<React.Fragment>No item called <strong style={{color:K.tx}}>{"\u201C"+(gSearch.trim()||search.trim())+"\u201D"}</strong>.<br/>
+                <Btn K={K} onClick={()=>openNewItem("entry",gSearch.trim()||search.trim())} style={{marginTop:12}}>{"\u002B"} Add it as a new item</Btn></React.Fragment>
+              :<React.Fragment>This category is empty.<br/><Btn K={K} onClick={()=>openNewItem("entry")} style={{marginTop:12}}>{"\u002B"} New item</Btn></React.Fragment>}
+            </div>}
           </div>
+          {filtered.length>0&&<button onClick={()=>openNewItem("entry",gSearch.trim())} style={{width:"100%",marginTop:10,background:"transparent",border:"1.5px dashed "+K.ac+"88",borderRadius:10,color:K.ac,padding:"11px",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>{"\u002B"} Can't find it? Add a new item</button>}
         </div>
 
         {/* RIGHT — current purchase */}
         <div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,padding:14,position:"sticky",top:78}}>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:K.tm,marginBottom:10}}>This Purchase {lines.length>0&&"· "+lines.length+" items"}</div>
           <div style={{maxHeight:"44vh",overflowY:"auto",marginBottom:10}}>
-            {lines.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"34px 10px",fontSize:13}}><div style={{fontSize:34,opacity:.4,marginBottom:6}}>{"\uD83D\uDED2"}</div>Tap items on the left to add them here.</div>):
+            {lines.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"34px 10px",fontSize:13}}><div style={{fontSize:34,opacity:.4,marginBottom:6}}>{"\uD83D\uDED2"}</div>Tap items in the catalogue to add them here.</div>):
             lines.map((l,idx)=>{const last=stats[l.code];return(
               <div key={idx} style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:10,padding:10,marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
@@ -684,16 +994,6 @@ function App(){
               </div>);})}
           </div>
 
-          {/* custom item */}
-          <details style={{marginBottom:10}}>
-            <summary style={{fontSize:11,color:K.tm,cursor:"pointer",userSelect:"none"}}>+ Add an item not in the catalogue</summary>
-            <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-              <input value={nName} onChange={e=>setNName(e.target.value)} placeholder="Item name" style={{flex:2,minWidth:130,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-              <input value={nPrice} onChange={e=>setNPrice(e.target.value)} type="number" placeholder="Rate" style={{width:70,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-              <select value={nCat} onChange={e=>setNCat(e.target.value)} title="Category for this item" style={{maxWidth:150,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}>
-                <option value="Custom">Custom</option>{Object.keys(catalog).map(c=><option key={c} value={c}>{c}</option>)}</select>
-              <Btn K={K} onClick={addCustomLine} style={{padding:"8px 12px"}}>Add</Btn></div>
-          </details>
 
           <input value={pNote} onChange={e=>setPNote(e.target.value)} placeholder="Note for this purchase (optional)" style={{width:"100%",boxSizing:"border-box",background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"9px 12px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none",marginBottom:10}}/>
 
@@ -740,138 +1040,57 @@ function App(){
       <p style={{fontSize:11,color:K.td,marginTop:10}}>Tap any row to see that item's full purchase history.</p>
     </div>)}
 
-    {/* ================= SELL RATE CALCULATOR ================= */}
+    {/* ================= SELL RATES (auto-filled from the catalogue) ================= */}
     {view==="sales"&&(<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:4,flexWrap:"wrap"}}>
-        <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Sell Rate Calculator</h2>
+        <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Sell Rates</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <Btn K={K} variant="ghost" onClick={()=>setShowMgr(true)} style={{padding:"9px 14px",fontSize:13}}>Manage items</Btn>
-          <Btn K={K} variant="ghost" onClick={exportSales} style={{padding:"9px 14px",fontSize:13}}>{"\u2B07"} Export Excel</Btn>
+          <Btn K={K} variant="ghost" onClick={exportSales} style={{padding:"9px 14px",fontSize:13}}>{"⬇"} Export Excel</Btn>
+          <Btn K={K} onClick={()=>openNewItem("sales",salesSearch.trim())} style={{padding:"9px 14px",fontSize:13}}>{"+"} New item</Btn>
         </div>
       </div>
-      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Add items, set the cost and any extra expense, then type a markup % <em>or</em> a selling price — each fills the other automatically. Cost is pre-filled from your weighted average purchase cost when available.</p>
+      <p style={{fontSize:12,color:K.tm,marginBottom:14,lineHeight:1.55}}>Every catalogue item is listed here automatically, including new ones the moment you add them. Cost fills in from your average purchase cost. Type a <strong>markup %</strong> or a <strong>selling price</strong>; each fills the other. Tap an item's name to rename it.</p>
+
+      {/* show chips */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+        {[["all","All",salesCounts.all],["unpriced","Not priced",salesCounts.unpriced],["priced","Priced",salesCounts.priced],["bought","Purchased",salesCounts.bought]].map(([k,l,n])=>(
+          <button key={k} onClick={()=>setSalesShow(k)} style={{background:salesShow===k?K.ag:K.sf,border:"1px solid "+(salesShow===k?K.ac:K.bd),color:salesShow===k?K.ac:K.tm,borderRadius:20,padding:"7px 13px",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>{l} <span style={{opacity:.75,fontWeight:600}}>{n}</span></button>))}
+      </div>
 
       {/* toolbar */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
-        <input value={salesSearch} onChange={e=>setSalesSearch(e.target.value)} placeholder={"\uD83D\uDD0D  Search items..."} style={{flex:"1 1 200px",minWidth:160,boxSizing:"border-box",background:K.sf,border:"1px solid "+K.bd,borderRadius:12,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
-        {salesCats.length>0&&<div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <span style={{fontSize:10,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Category</span>
-          <select value={salesCatFilter} onChange={e=>setSalesCatFilter(e.target.value)} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none",maxWidth:170}}>
-            <option value="">All categories</option>{salesCats.map(c=><option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>}
+        <input value={salesSearch} onChange={e=>setSalesSearch(e.target.value)} placeholder={"🔍  Search items..."} style={{flex:"1 1 200px",minWidth:160,boxSizing:"border-box",background:K.sf,border:"1px solid "+K.bd,borderRadius:12,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
+        {salesCats.length>0&&<select value={salesCatFilter} onChange={e=>setSalesCatFilter(e.target.value)} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"10px 10px",outline:"none",maxWidth:190}}>
+          <option value="">All categories</option>{salesCats.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>}
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <span style={{fontSize:10,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Sort</span>
-          <select value={salesSort.k} onChange={e=>setSalesSort(s=>({k:e.target.value,d:s.d}))} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}>
+          <select value={salesSort.k} onChange={e=>setSalesSort(s=>({k:e.target.value,d:s.d}))} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"10px 10px",outline:"none"}}>
             <option value="name">Name</option><option value="pct">Markup %</option><option value="sell">Selling price</option><option value="net">Net rate</option><option value="cost">Cost</option><option value="profit">Profit / pc</option>
           </select>
-          <button onClick={()=>setSalesSort(s=>({k:s.k,d:-s.d}))} title="Toggle ascending / descending" style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,cursor:"pointer",padding:"9px 12px",fontSize:13,fontFamily:"inherit"}}>{salesSort.d===1?"\u25B2":"\u25BC"}</button>
+          <button onClick={()=>setSalesSort(s=>({k:s.k,d:-s.d}))} title="Toggle ascending / descending" style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,cursor:"pointer",padding:"10px 12px",fontSize:13,fontFamily:"inherit"}}>{salesSort.d===1?"▲":"▼"}</button>
         </div>
-        <Btn K={K} onClick={()=>setSalesPickerOpen(o=>!o)} style={{padding:"9px 14px",fontSize:13}}>{salesPickerOpen?"\u2715 Close":"\u002B Add items"}</Btn>
-        {salesRows.length>0&&<Btn K={K} variant="danger" onClick={clearSales} style={{padding:"9px 14px",fontSize:13}}>Clear</Btn>}
       </div>
 
-      {/* item picker */}
-      {salesPickerOpen&&(<div style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,padding:14,marginBottom:14}}>
-        <input value={sGlobal} onChange={e=>setSGlobal(e.target.value)} placeholder={"\uD83D\uDD0D  Search all "+totalP+" items..."} style={{width:"100%",boxSizing:"border-box",background:K.ag,border:"1.5px solid "+K.ac+"55",borderRadius:10,padding:"11px 14px",color:K.tx,fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:10}}/>
-        {!sGlobal.trim()&&(<div style={{display:"flex",gap:8,marginBottom:10}}>
-          <select value={sCat} onChange={e=>setSCat(e.target.value)} style={{flex:1,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}>
-            {Object.keys(catalog).map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
-          <input value={sFilter} onChange={e=>setSFilter(e.target.value)} placeholder="filter..." style={{width:120,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"9px 10px",outline:"none"}}/>
-        </div>)}
-        {salesPickRows.length>0&&(()=>{const newCount=salesPickRows.filter(p=>!inSales[p.id]).length;return(
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:K.ag,border:"1px solid "+K.ac+"55",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
-            <span style={{fontSize:12,color:K.tm}}>{sGlobal.trim()?salesPickRows.length+" match"+(salesPickRows.length>1?"es":""):salesPickRows.length+" in "+sCat}{newCount<salesPickRows.length?" · "+newCount+" not yet added":""}</span>
-            <Btn K={K} onClick={addSalesAll} style={{padding:"7px 14px",fontSize:12.5,whiteSpace:"nowrap",opacity:newCount>0?1:0.5}}>{"\u002B"} Add {sGlobal.trim()?"all matching":"whole category"}{newCount>0?" ("+newCount+")":""}</Btn>
-          </div>);})()}
-        <div className="prod-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,maxHeight:"40vh",overflowY:"auto",paddingRight:2}}>
-          {salesPickRows.map(p=>{const added=inSales[p.id];const avg=stats[p.id]?stats[p.id].avg:0;return(
-            <button key={p.id} onClick={()=>addSalesItem(p)} style={{textAlign:"left",background:added?K.ag:K.bg,border:"1px solid "+(added?K.ac:K.bd),borderRadius:10,padding:"9px 10px",cursor:"pointer",position:"relative",fontFamily:"inherit",color:K.tx}}>
-              {added&&<span style={{position:"absolute",top:6,right:7,color:K.ac,fontSize:12,fontWeight:800}}>{"\u2713"}</span>}
-              <div style={{fontSize:12,fontWeight:600,lineHeight:1.25,paddingRight:16}}>{p.name}</div>
-              <div style={{fontSize:9.5,color:K.td,marginTop:4}}>{p.id}{p.rack?" · "+p.rack:""}{sGlobal.trim()?" · "+p._cat:""}</div>
-              <div style={{fontSize:10,color:K.tm,marginTop:3}}>{avg>0?"avg cost "+fmt(avg):<span style={{color:K.td}}>sell {fmt(p.price)}</span>}</div>
-            </button>);})}
-          {salesPickRows.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:K.tm,padding:24,fontSize:13}}>No items found.</div>}
-        </div>
-        <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
-          <input value={scName} onChange={e=>setScName(e.target.value)} placeholder="Custom item not in catalogue" style={{flex:2,minWidth:140,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-          <input value={scCost} onChange={e=>setScCost(onlyDec(e.target.value))} inputMode="decimal" placeholder="Cost ₹" style={{width:84,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-          <select value={scCat} onChange={e=>setScCat(e.target.value)} title="Category for this item" style={{maxWidth:150,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}>
-            <option value="Custom">Custom</option>{Object.keys(catalog).map(c=><option key={c} value={c}>{c}</option>)}</select>
-          <Btn K={K} onClick={addSalesCustom} style={{padding:"8px 12px"}}>Add</Btn></div>
-      </div>)}
+      <div style={{fontSize:11,color:K.td,marginBottom:10}}>{salesView.length} item{salesView.length!==1?"s":""} shown{salesAvgMarkup!=null?" · avg markup "+salesAvgMarkup+"%":""}</div>
 
-      {salesRows.length>0&&<div style={{fontSize:11,color:K.td,marginBottom:10}}>{salesView.length} item{salesView.length!==1?"s":""} shown{salesAvgMarkup!=null?" · avg markup "+salesAvgMarkup+"%":""}</div>}
-
-      {/* worksheet */}
-      {salesRows.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"46px 16px",fontSize:13,background:K.sf,border:"1px dashed "+K.bd,borderRadius:16}}>
-        <div style={{fontSize:34,opacity:.4,marginBottom:8}}>{"\uD83C\uDFF7\uFE0F"}</div>
-        No items yet. Tap <strong>{"\u002B"} Add items</strong> to pull products from your catalogue and start pricing.</div>):
-      salesView.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"36px 16px",fontSize:13,background:K.sf,border:"1px dashed "+K.bd,borderRadius:16}}>
-        No items match{salesCatFilter?" in \u201C"+salesCatFilter+"\u201D":""}{salesSearch.trim()?" for \u201C"+salesSearch.trim()+"\u201D":""}. <span onClick={()=>{setSalesSearch("");setSalesCatFilter("");}} style={{color:K.ac,cursor:"pointer",textDecoration:"underline"}}>Clear filters</span></div>):
+      {salesView.length===0?(<div style={{textAlign:"center",color:K.tm,padding:"36px 16px",fontSize:13,background:K.sf,border:"1px dashed "+K.bd,borderRadius:16}}>
+        {salesSearch.trim()?<React.Fragment>No item matches {"“"+salesSearch.trim()+"”"}.<br/><Btn K={K} onClick={()=>openNewItem("sales",salesSearch.trim())} style={{marginTop:12}}>{"+"} Add it as a new item</Btn><br/></React.Fragment>:"Nothing to show here. "}
+        {(salesSearch.trim()||salesCatFilter||salesShow!=="all")&&<span onClick={()=>{setSalesSearch("");setSalesCatFilter("");setSalesShow("all");}} style={{color:K.ac,cursor:"pointer",textDecoration:"underline",display:"inline-block",marginTop:10}}>Clear filters</span>}</div>):
       (<div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {salesView.map(r=>{const net=r.net;const profit=num(r.sell)-net;const avg=stats[r.code]?stats[r.code].avg:0;return(
-          <div key={r.code} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:14,padding:"12px 14px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
-              <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700}}>{r.name}</div>
-                <div style={{fontSize:10,color:K.td,marginTop:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  <span>{r.cat}{r.rack?" · "+r.rack:""} · {r.code}</span>
-                  <select value="" onChange={e=>{if(e.target.value){changeRowCat(r._i,e.target.value);e.target.value="";}}} title="Move to another category" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:6,color:K.tm,fontFamily:"inherit",fontSize:10,padding:"2px 4px",outline:"none",cursor:"pointer"}}>
-                    <option value="">move to...</option>
-                    {(r.cat!=="Custom"?["Custom"]:[]).concat(Object.keys(catalog)).filter(c=>c!==r.cat).map(c=><option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div></div>
-              <button onClick={()=>removeSalesRow(r._i)} style={{background:"none",border:"none",color:K.dn,fontSize:16,cursor:"pointer",lineHeight:1}}>{"\u2715"}</button>
-            </div>
-            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:96}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Cost</label>
-                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}>
-                  <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
-                  <input inputMode="decimal" value={r.cost} onChange={e=>changeCost(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:60,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
-                {avg>0?<button onClick={()=>refillAvg(r._i)} style={{background:"none",border:"none",color:K.ac,cursor:"pointer",fontSize:9.5,fontWeight:700,fontFamily:"inherit",padding:0,textAlign:"left"}}>use avg {fmt(avg)}</button>:<span style={{fontSize:9,color:K.td}}>no purchase data</span>}
-              </div>
-              <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"\u002B"}</span>
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:88}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Extra exp.</label>
-                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"0 8px"}}>
-                  <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
-                  <input inputMode="decimal" value={r.extra} onChange={e=>changeExtra(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:52,background:"transparent",border:"none",color:K.tx,fontSize:13,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
-              </div>
-              <span style={{color:K.td,fontSize:14,paddingBottom:11}}>{"\u003D"}</span>
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:78}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Net rate</label>
-                <div style={{background:K.cd,border:"1px solid "+K.bd,borderRadius:8,padding:"8px 10px",fontSize:13,fontWeight:700,color:K.tx,textAlign:"right"}}>{fmt(net)}</div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:84}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.ac}}>Markup %</label>
-                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.ac+"66",borderRadius:8,padding:"0 8px"}}>
-                  <input inputMode="decimal" value={r.pct} onChange={e=>changePct(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:46,background:"transparent",border:"none",color:K.tx,fontSize:13,fontWeight:600,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/>
-                  <span style={{color:K.tm,fontSize:12}}>%</span></div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:98}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.ac}}>Selling price</label>
-                <div style={{display:"flex",alignItems:"center",gap:3,background:K.bg,border:"1px solid "+K.ac+"66",borderRadius:8,padding:"0 8px"}}>
-                  <span style={{color:K.tm,fontSize:12}}>{"\u20B9"}</span>
-                  <input inputMode="decimal" value={r.sell} onChange={e=>changeSell(r._i,e.target.value)} onFocus={e=>e.target.select()} placeholder="0" style={{width:66,background:"transparent",border:"none",color:K.ac,fontSize:14,fontWeight:700,fontFamily:"inherit",textAlign:"right",outline:"none",padding:"8px 0"}}/></div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:78,marginLeft:"auto"}}>
-                <label style={{fontSize:9,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:K.tm}}>Profit / pc</label>
-                <div style={{fontSize:13,fontWeight:700,textAlign:"right",paddingTop:8,color:profit>0?K.su:profit<0?K.dn:K.tm}}>{fmt(profit)}</div>
-              </div>
-            </div>
-          </div>);})}
+        {salesView.slice(0,salesLimit).map(r=>(
+          <SalesRow key={r.code} K={K} r={r} avg={stats[r.code]?stats[r.code].avg:0} inCatalog={!!catItem[r.code]} moveTargets={catNames}
+            onField={onSalesField} onUseAvg={onUseAvg} onMove={onMoveRow} onClear={onClearRow} onRemove={onRemoveRow} onRename={onRenameRow}/>))}
+        {salesView.length>salesLimit&&<Btn K={K} variant="ghost" onClick={()=>setSalesLimit(l=>l+100)} style={{width:"100%",padding:"13px"}}>Show more ({salesView.length-salesLimit} left)</Btn>}
       </div>)}
     </div>)}
-
     {/* ================= MONTHLY PROFIT ================= */}
     {view==="profit"&&(<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:4,flexWrap:"wrap"}}>
         <h2 className="serif" style={{fontSize:24,fontWeight:600}}>Monthly Profit</h2>
         <Btn K={K} variant="ghost" onClick={exportProfit} style={{padding:"9px 14px",fontSize:13}}>{"\u2B07"} Export Excel</Btn>
       </div>
-      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Pick a month, then enter <strong>Qty sold</strong> and the <strong>average selling price</strong> for any item. Cost comes from the <strong>Net rate</strong> in your Sell Rate Calculator (cost + extra expenses) — so this is your <strong>net profit</strong>. If an item isn't in the Sales tab, the weighted average purchase price is used instead. You can override it per month.</p>
+      <p style={{fontSize:12,color:K.tm,marginBottom:14}}>Pick a month, then enter <strong>Qty sold</strong> and the <strong>average selling price</strong> for any item. Cost comes from the <strong>Net rate</strong> in Sell Rates (cost + extra expenses), so this is your <strong>net profit</strong>. If no net rate is set, the weighted average purchase price is used instead. You can override it per month. Items show here once they have a purchase, a cost or a selling price.</p>
 
       {/* month selector */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
@@ -985,44 +1204,49 @@ function App(){
 
     </div>
 
-    {/* ====== CATALOGUE MANAGER ====== */}
-    {showMgr&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997,padding:16}} onClick={()=>{setShowMgr(false);setEditIdx(-1);}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,width:"100%",maxWidth:640,maxHeight:"88vh",overflowY:"auto",padding:20,animation:"slideUp .25s ease"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <h3 className="serif" style={{fontSize:22,fontWeight:600}}>Catalogue Manager</h3>
-          <button onClick={()=>{setShowMgr(false);setEditIdx(-1);}} style={{background:"none",border:"none",color:K.tm,fontSize:20,cursor:"pointer"}}>{"\u2715"}</button></div>
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="New category name" style={{flex:1,background:K.bg,border:"1px solid "+K.bd,borderRadius:8,padding:"9px 11px",color:K.tx,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-          <Btn K={K} onClick={addCategory}>+ Category</Btn></div>
-        <select value={selCat} onChange={e=>{setSelCat(e.target.value);setEditIdx(-1);}} style={{width:"100%",background:K.bg,border:"1px solid "+K.bd,borderRadius:8,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"10px",outline:"none",marginBottom:6}}>
-          {Object.keys(catalog).map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
-        {catalog[selCat]&&catalog[selCat].length===0&&<Btn K={K} variant="danger" onClick={()=>removeCategory(selCat)} style={{marginBottom:10,fontSize:12,padding:"6px 12px"}}>Delete empty category</Btn>}
-
-        <div style={{display:"flex",gap:6,margin:"10px 0"}}>
-          <input value={nName} onChange={e=>setNName(e.target.value)} placeholder="Item name" style={{flex:2,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-          <input value={nCode} onChange={e=>setNCode(e.target.value)} placeholder="Rack" style={{width:64,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-          <input value={nPrice} onChange={e=>setNPrice(e.target.value)} type="number" placeholder="Sell ₹" style={{width:70,background:K.bg,border:"1px solid "+K.bd,borderRadius:7,padding:"8px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-          <Btn K={K} onClick={addToCat} style={{padding:"8px 12px"}}>Add</Btn></div>
-
-        <div style={{maxHeight:"42vh",overflowY:"auto"}}>
-          {(catalog[selCat]||[]).map((p,idx)=>(<div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 4px",borderTop:"1px solid "+K.bd}}>
-            {editIdx===idx?(<React.Fragment>
-              <input value={editData.name} onChange={e=>setEditData({...editData,name:e.target.value})} style={{flex:2,background:K.bg,border:"1px solid "+K.ac,borderRadius:6,padding:"6px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-              <input value={editData.rack||""} onChange={e=>setEditData({...editData,rack:e.target.value})} style={{width:56,background:K.bg,border:"1px solid "+K.ac,borderRadius:6,padding:"6px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-              <input value={editData.price} onChange={e=>setEditData({...editData,price:e.target.value})} type="number" style={{width:62,background:K.bg,border:"1px solid "+K.ac,borderRadius:6,padding:"6px",color:K.tx,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-              <button onClick={saveEdit} style={{background:K.su,border:"none",color:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>{"\u2713"}</button>
+    {/* ====== ITEMS MANAGER (edit / move / remove; adding goes through the New Item form) ====== */}
+    {showMgr&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997,padding:16}} onClick={()=>{setShowMgr(false);setEditId(null);}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,width:"100%",maxWidth:660,maxHeight:"90vh",display:"flex",flexDirection:"column",padding:18,animation:"slideUp .25s ease"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10}}>
+          <h3 className="serif" style={{fontSize:22,fontWeight:600}}>Items</h3>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <Btn K={K} onClick={()=>openNewItem("manage",mgrSearch.trim())} style={{padding:"8px 14px",fontSize:12.5}}>{"+"} New item</Btn>
+            <button onClick={()=>{setShowMgr(false);setEditId(null);}} style={{background:"none",border:"none",color:K.tm,fontSize:20,cursor:"pointer"}}>{"✕"}</button></div></div>
+        <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+          <input value={mgrSearch} onChange={e=>setMgrSearch(e.target.value)} placeholder={"🔍  Search "+totalP+" items..."} style={{flex:"1 1 180px",background:K.bg,border:"1px solid "+K.bd,borderRadius:9,padding:"10px 12px",color:K.tx,fontSize:13.5,fontFamily:"inherit",outline:"none"}}/>
+          <select value={mgrCat} onChange={e=>{setMgrCat(e.target.value);setEditId(null);}} style={{flex:"0 1 220px",background:K.bg,border:"1px solid "+K.bd,borderRadius:9,color:K.tx,fontFamily:"inherit",fontSize:13,padding:"10px",outline:"none"}}>
+            <option value="">All categories</option>{catNames.map(c=><option key={c} value={c}>{c} ({catalog[c].length})</option>)}</select>
+        </div>
+        {mgrCat&&<div style={{display:"flex",gap:8,marginBottom:8}}>
+          <Btn K={K} variant="ghost" onClick={()=>renameCategory(mgrCat)} style={{fontSize:12,padding:"6px 12px"}}>Rename category</Btn>
+          {catalog[mgrCat]&&catalog[mgrCat].length===0&&<Btn K={K} variant="danger" onClick={()=>removeCategory(mgrCat)} style={{fontSize:12,padding:"6px 12px"}}>Delete empty category</Btn>}
+        </div>}
+        <div style={{fontSize:11,color:K.td,marginBottom:4}}>{mgrRows.length} item{mgrRows.length!==1?"s":""}{" · "}tap {"✎"} to edit</div>
+        <div style={{overflowY:"auto",flex:1,minHeight:120}}>
+          {mgrRows.slice(0,250).map(p=>(<div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 4px",borderTop:"1px solid "+K.bd,flexWrap:editId===p.id?"wrap":"nowrap"}}>
+            {editId===p.id?(<React.Fragment>
+              <input value={editData.name} onChange={e=>setEditData({...editData,name:e.target.value.toUpperCase()})} placeholder="Name" style={{flex:"2 1 180px",background:K.bg,border:"1px solid "+K.ac,borderRadius:7,padding:"8px",color:K.tx,fontSize:12.5,fontFamily:"inherit",outline:"none"}}/>
+              <input value={editData.rack} onChange={e=>setEditData({...editData,rack:e.target.value})} placeholder="Rack" style={{width:70,background:K.bg,border:"1px solid "+K.ac,borderRadius:7,padding:"8px",color:K.tx,fontSize:12.5,fontFamily:"inherit",outline:"none"}}/>
+              <input value={editData.price} inputMode="decimal" onChange={e=>setEditData({...editData,price:onlyDec(e.target.value)})} placeholder="Sell ₹" style={{width:80,background:K.bg,border:"1px solid "+K.ac,borderRadius:7,padding:"8px",color:K.tx,fontSize:12.5,fontFamily:"inherit",outline:"none"}}/>
+              <button onClick={saveEdit} style={{background:K.su,border:"none",color:"#fff",borderRadius:7,padding:"8px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+              <button onClick={()=>setEditId(null)} style={{background:"none",border:"1px solid "+K.bd,color:K.tm,borderRadius:7,padding:"8px 10px",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
             </React.Fragment>):(<React.Fragment>
-              <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600}}>{p.name}</div><div style={{fontSize:10,color:K.td}}>{p.id}{p.rack?" · "+p.rack:""} · sell {fmt(p.price)}</div></div>
-              <select onChange={e=>{if(e.target.value){moveItem(selCat,idx,e.target.value);e.target.value="";}}} value="" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:6,color:K.tm,fontFamily:"inherit",fontSize:11,padding:"4px",outline:"none"}}>
-                <option value="">move...</option>{Object.keys(catalog).filter(c=>c!==selCat).map(c=><option key={c} value={c}>{c}</option>)}</select>
-              <button onClick={()=>startEdit(idx,p)} style={{background:"none",border:"none",color:K.tm,fontSize:14,cursor:"pointer"}}>{"\u270E"}</button>
-              <button onClick={()=>rmFromCat(selCat,idx)} style={{background:"none",border:"none",color:K.dn,fontSize:14,cursor:"pointer"}}>{"\u2715"}</button>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:12.5,fontWeight:600}}>{p.name}</div><div style={{fontSize:10,color:K.td}}>{p.id}{p.rack?" · "+p.rack:""}{!mgrCat?" · "+p._cat:""}{p.price?" · sell "+fmt(p.price):""}</div></div>
+              <select onChange={e=>{if(e.target.value){moveItemTo(p.id,e.target.value);flash("Moved to "+e.target.value);e.target.value="";}}} value="" title="Move to category" style={{background:K.bg,border:"1px solid "+K.bd,borderRadius:6,color:K.tm,fontFamily:"inherit",fontSize:11,padding:"5px 4px",outline:"none",maxWidth:90}}>
+                <option value="">move...</option>{catNames.filter(c=>c!==p._cat).map(c=><option key={c} value={c}>{c}</option>)}</select>
+              <button onClick={()=>startEdit(p)} title="Edit" style={{background:"none",border:"none",color:K.tm,fontSize:15,cursor:"pointer",padding:"2px 4px"}}>{"✎"}</button>
+              <button onClick={()=>removeItem(p)} title="Remove" style={{background:"none",border:"none",color:K.dn,fontSize:15,cursor:"pointer",padding:"2px 4px"}}>{"✕"}</button>
             </React.Fragment>)}
           </div>))}
+          {mgrRows.length>250&&<div style={{fontSize:11,color:K.td,textAlign:"center",padding:10}}>Showing first 250. Search or pick a category to narrow down.</div>}
+          {mgrRows.length===0&&<div style={{textAlign:"center",color:K.tm,padding:24,fontSize:13}}>No items found.{mgrSearch.trim()&&<React.Fragment><br/><Btn K={K} onClick={()=>openNewItem("manage",mgrSearch.trim())} style={{marginTop:10}}>{"+"} Add {"“"+mgrSearch.trim()+"”"}</Btn></React.Fragment>}</div>}
         </div>
-        <Btn K={K} variant="ghost" onClick={()=>{setShowMgr(false);setEditIdx(-1);}} style={{width:"100%",marginTop:12}}>Done</Btn>
+        <Btn K={K} variant="ghost" onClick={()=>{setShowMgr(false);setEditId(null);}} style={{width:"100%",marginTop:12}}>Done</Btn>
       </div></div>)}
 
+    {/* ====== NEW ITEM ====== */}
+    {newItem&&<NewItemSheet K={K} catalog={catalog} mode={newItem.mode} initial={newItem}
+      onCreate={d=>createItem(d,newItem.mode)} onPickExisting={p=>pickExisting(p,newItem.mode)} onClose={()=>setNewItem(null)}/>}
     {/* ====== BACKUP ====== */}
     {showBackup&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997,padding:16}} onClick={()=>setShowBackup(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:K.sf,border:"1px solid "+K.bd,borderRadius:16,width:"100%",maxWidth:380,padding:22,animation:"slideUp .25s ease"}}>
@@ -1031,6 +1255,7 @@ function App(){
         <Btn K={K} onClick={exportData} style={{width:"100%",marginBottom:8}}>{"\u2B07"} Export backup (.json)</Btn>
         <Btn K={K} variant="ghost" onClick={()=>document.getElementById("imp").click()} style={{width:"100%",marginBottom:8}}>{"\u2B06"} Import backup</Btn>
         <input id="imp" type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
+        <Btn K={K} variant="ghost" onClick={downloadSnapshot} style={{width:"100%",marginBottom:8,fontSize:12}}>{"\u2B07"} Download pre-upgrade copy</Btn>
         <Btn K={K} variant="danger" onClick={wipeAll} style={{width:"100%",marginBottom:8}}>Erase all data</Btn>
         <Btn K={K} variant="ghost" onClick={()=>setShowBackup(false)} style={{width:"100%"}}>Close</Btn>
       </div></div>)}
